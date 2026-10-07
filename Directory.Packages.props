@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Package versions are intentionally added Issue-by-Issue.
+       Do not preinstall speculative dependencies. -->
+  <ItemGroup />
+</Project>

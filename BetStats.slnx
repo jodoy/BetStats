@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BetStats.Api/BetStats.Api.csproj" />
+    <Project Path="src/BetStats.Application/BetStats.Application.csproj" />
+    <Project Path="src/BetStats.Domain/BetStats.Domain.csproj" />
+    <Project Path="src/BetStats.Infrastructure/BetStats.Infrastructure.csproj" />
+    <Project Path="src/BetStats.Web/BetStats.Web.csproj" />
+    <Project Path="src/BetStats.Worker/BetStats.Worker.csproj" />
+  </Folder>
+</Solution>

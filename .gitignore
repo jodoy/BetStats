@@ -1,0 +1,53 @@
+# .NET / Visual Studio / Rider
+bin/
+obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+TestResults/
+coverage/
+*.trx
+
+# Build / packages
+artifacts/
+packages/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+appsettings.Development.local.json
+secrets.json
+*.pfx
+*.p12
+*.key
+*.pem
+
+# Databases / local volumes
+*.db
+*.sqlite
+postgres-data/
+data/local/
+data/raw/
+data/provider/
+data/private/
+
+# Python / ML local artifacts
+.venv/
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+models/local/
+mlruns/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
