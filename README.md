@@ -69,6 +69,16 @@ docs/
   adr/
 ```
 
+## Documentation
+
+- 🇬🇧 [Software & Product Engineering Specification v1.0 — English](docs/specifications/BetStats_2_0_Software_Product_Engineering_Specification_v1_0_EN.docx)
+- 🇵🇱 [Specyfikacja Produktu i Inżynierii v1.0 — Polski](docs/specifications/BetStats_2_0_Specyfikacja_Produktu_i_Inzynierii_v1_0_PL.docx)
+- [Architecture Decision Records](docs/adr/)
+- [Engineering documentation — English](docs/en/)
+- [Dokumentacja techniczna — Polski](docs/pl/)
+
+The Markdown documentation is the living engineering documentation. The DOCX specifications are versioned baseline documents.
+
 ## Architecture rules
 
 Read [`AGENTS.md`](AGENTS.md) before changing the codebase. Architecture-impacting changes require an ADR.

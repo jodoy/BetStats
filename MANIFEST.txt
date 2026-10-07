@@ -18,7 +18,6 @@ README.pl.md
 SECURITY.md
 THIRD_PARTY_DATA.md
 docker-compose.yml
-docs/BetStats_2_0_Specyfikacja_Produktu_i_Inzynierii_v1_0_PL.docx
 docs/adr/0001-modular-monolith.md
 docs/adr/0002-dotnet-10.md
 docs/adr/0003-postgresql.md
@@ -37,6 +36,8 @@ docs/en/product/initial-backlog.md
 docs/en/quality/quality-gates.md
 docs/en/security/security-baseline.md
 docs/pl/architecture/overview.md
+docs/specifications/BetStats_2_0_Software_Product_Engineering_Specification_v1_0_EN.docx
+docs/specifications/BetStats_2_0_Specyfikacja_Produktu_i_Inzynierii_v1_0_PL.docx
 global.json
 src/BetStats.Api/BetStats.Api.csproj
 src/BetStats.Api/Program.cs
