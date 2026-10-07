@@ -25,5 +25,5 @@ jobs:
       - name: Build
         run: dotnet build BetStats.slnx --configuration Release --no-restore
 
-      # Test projects are introduced with the first quality-foundation issues.
-      # Keep this workflow green during BS-001 instead of inventing empty tests.
+      - name: Test
+        run: dotnet test BetStats.slnx --configuration Release --no-build

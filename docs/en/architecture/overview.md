@@ -2,6 +2,18 @@
 
 BetStats is a modular monolith.
 
+## Engineering dependency baseline
+
+Domain has no project dependencies. Application depends on Domain.
+Infrastructure depends on Application and Domain. API and Worker are composition
+roots; Web may depend on Application and Domain, never Infrastructure or
+persistence implementations. The existing references are preserved and the
+allowed graph is enforced by MSBuild-based architecture tests in Debug and
+Release. See [ADR 0013](../../adr/0013-project-dependency-direction.md).
+
+The pipeline below describes the target architecture. BS-001 contains host
+scaffolding and engineering tests; no sports or persistence implementation exists.
+
 ## Pipeline
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`
 
