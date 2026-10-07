@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/BetStats.Domain/BetStats.Domain.csproj" />
+    <ProjectReference Include="../../src/BetStats.Application/BetStats.Application.csproj" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+</Project>

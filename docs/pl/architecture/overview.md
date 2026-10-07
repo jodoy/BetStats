@@ -2,6 +2,13 @@
 
 BetStats jest modular monolithem.
 
+Domain nie zależy od innych projektów. Application zależy od Domain,
+Infrastructure od Application i Domain. API i Worker są composition roots.
+Web może zależeć od Application i Domain, bez Infrastructure i persystencji.
+Testy architektury weryfikują graf w Debug i Release przez MSBuild.
+Zobacz [ADR 0013](../../adr/0013-project-dependency-direction.md).
+Pipeline opisuje architekturę docelową; BS-001 nie implementuje funkcji sportowych ani persystencji.
+
 Pipeline:
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`
 

@@ -20,6 +20,7 @@ packages/
 .env.*
 !.env.example
 appsettings.Development.local.json
+appsettings.*.local.json
 secrets.json
 *.pfx
 *.p12
