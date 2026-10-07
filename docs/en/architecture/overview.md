@@ -11,8 +11,10 @@ persistence implementations. The existing references are preserved and the
 allowed graph is enforced by MSBuild-based architecture tests in Debug and
 Release. See [ADR 0013](../../adr/0013-project-dependency-direction.md).
 
-The pipeline below describes the target architecture. BS-001 contains host
-scaffolding and engineering tests; no sports or persistence implementation exists.
+The pipeline below describes the target architecture. BS-002 adds PostgreSQL
+source/run/RAW capture metadata in Infrastructure; no sports pipeline exists.
+See [persistence boundaries and migration ownership](../../adr/0014-persistence-foundation.md)
+and [persistence setup](../data/persistence-foundation.md).
 
 ## Pipeline
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`

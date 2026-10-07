@@ -25,5 +25,14 @@ jobs:
       - name: Build
         run: dotnet build BetStats.slnx --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test BetStats.slnx --configuration Release --no-build
+      - name: Unit tests
+        run: dotnet test tests/BetStats.UnitTests --configuration Release --no-build
+
+      - name: Architecture tests
+        run: dotnet test tests/BetStats.ArchitectureTests --configuration Release --no-build
+
+      - name: Verify Docker for integration tests
+        run: docker info
+
+      - name: PostgreSQL integration tests
+        run: dotnet test tests/BetStats.IntegrationTests --configuration Release --no-build
