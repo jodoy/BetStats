@@ -1,16 +1,25 @@
-name: CI
+name: CodeQL
 
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * 1'
 
 permissions:
+  security-events: write
+  packages: read
   contents: read
 
 jobs:
-  build:
+  analyze:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [csharp]
     steps:
       - uses: actions/checkout@v4
 
@@ -19,11 +28,15 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual
+
       - name: Restore
         run: dotnet restore BetStats.slnx
 
       - name: Build
         run: dotnet build BetStats.slnx --configuration Release --no-restore
 
-      # Test projects are introduced with the first quality-foundation issues.
-      # Keep this workflow green during BS-001 instead of inventing empty tests.
+      - uses: github/codeql-action/analyze@v3

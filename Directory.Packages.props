@@ -5,5 +5,7 @@
 
   <!-- Package versions are intentionally added Issue-by-Issue.
        Do not preinstall speculative dependencies. -->
-  <ItemGroup />
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+  </ItemGroup>
 </Project>
