@@ -17,22 +17,24 @@ public static class SyntheticFootballDemo
     public static byte[] Bytes(string csv = Csv) => Encoding.UTF8.GetBytes(csv);
 
     // Separate explicit operator setup. Never called by ingestion or host startup.
-    public static async Task<Guid> PrepareAsync(BetStatsDbContext context, bool approveSynthetic, string sourceCode = "synthetic-football-demo", CancellationToken cancellationToken = default, bool allowSyntheticDisplay = false)
+    public static async Task<Guid> PrepareAsync(BetStatsDbContext context, bool approveSynthetic, string sourceCode = "synthetic-football-demo", CancellationToken cancellationToken = default, bool allowSyntheticDisplay = false, FootballImportScope? fixtureScope = null)
     {
         if (!approveSynthetic) throw new InvalidOperationException("Explicit synthetic policy and mapping approval is required.");
+        var scope = fixtureScope ?? Scope;
+        if (!scope.IsValid || scope.CompetitionReference != "FICT") throw new ArgumentException("Only project-owned FICT scope supported.");
         var existing = await context.DataSources.SingleOrDefaultAsync(s => s.Code == sourceCode, cancellationToken);
         if (existing is not null) return existing.Id;
         var now = await context.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(cancellationToken);
         var source = new DataSource { Id = Guid.NewGuid(), Code = sourceCode, DisplayName = "Fictional football fixture only", IsEnabled = true, CreatedAtUtc = now };
         var football = ReferenceSports.All.Single(s => s.Code == "football").Id;
         var competition = new Competition(Guid.NewGuid(), football, "Fictional Lantern League", null, CompetitionType.League);
-        var season = new Season(Guid.NewGuid(), competition.Id, "Fictional 2026 season");
+        var season = new Season(Guid.NewGuid(), competition.Id, "Fictional " + scope.SeasonReference + " season");
         var policy = new SourcePolicy(Guid.NewGuid(), source.Id, 1, now, null, "synthetic:owned-fixture", "synthetic:operator-review", now,
             new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }
                 .Concat(allowSyntheticDisplay ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()).Select(p => new PurposePermission(p, PermissionDecision.Allowed)));
         context.AddRange(source, competition, season, policy);
         Reviewed(CanonicalEntityKind.Competition, "provider:competition:FICT", competition.Id);
-        Reviewed(CanonicalEntityKind.Season, FootballDataCsvParser.SeasonReference(Scope.CompetitionReference, Scope.SeasonReference), season.Id);
+        Reviewed(CanonicalEntityKind.Season, FootballDataCsvParser.SeasonReference(scope.CompetitionReference, scope.SeasonReference), season.Id);
         foreach (var name in new[] { "Amber Comets", "Cobalt Owls", "Silver Foxes", "Violet Herons" })
         {
             var team = new Participant(Guid.NewGuid(), football, name, ParticipantType.Team); context.Add(team);

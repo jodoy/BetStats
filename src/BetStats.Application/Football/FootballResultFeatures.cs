@@ -49,9 +49,11 @@ public sealed record FootballResultDatasetRequest(DatasetBuildRequest Metadata, 
 public sealed record FootballResultDatasetRow(DatasetRow Metadata, FootballResultReport FeatureEvidence,
     FootballResultReport LabelEvidence, FootballResultFeatureVector Features, IReadOnlyList<FootballOutcomeLabels> Labels, string FeatureHash);
 public sealed record FootballResultManifest(int ManifestVersion, int FeatureSchemaVersion, int SerializerVersion,
-    DatasetManifest MetadataManifest, string MetadataManifestHash, DateTime LabelAsOfUtc, IReadOnlyList<FootballResultDatasetRow> Rows);
+    DatasetManifest MetadataManifest, string MetadataManifestHash, DateTime LabelAsOfUtc, IReadOnlyList<FootballResultDatasetRow> Rows,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] ResultDatasetGovernance? ResultGovernance = null);
 public sealed record FootballResultSnapshot(Guid Id, string Hash, FootballResultManifest Manifest);
-public sealed record FootballResultVerification(bool Integrity, bool FeaturesReproducible, bool CurrentlyAuthorized);
+public sealed record FootballResultVerification(bool Integrity, bool FeaturesReproducible, bool CurrentlyAuthorized,
+    bool? RawAvailable = null, bool? RawHashVerified = null);
 public interface IFootballResultDatasets
 {
     Task<FootballResultSnapshot> BuildAsync(FootballResultDatasetRequest request, CancellationToken token = default);
