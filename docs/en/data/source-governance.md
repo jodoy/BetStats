@@ -93,7 +93,9 @@ The initial execution result is status/error only; BS-005 should add the smalles
 typed data contract required by its licensed vertical slice.
 
 AuthorizedProviderExecutor validates capability/configuration, evaluates policy,
-acquires the supplied shared budget, then invokes the adapter with cancellation.
+checks current operational source status before policy and again before acquiring
+the supplied shared budget, then invokes the adapter with cancellation (BS-004.1).
+Missing/disabled sources deny independently of historical licensing rights.
 Policy denial never invokes ExecuteAsync. Configuration validation must be local;
 it cannot contact providers before authorization. Adapters must classify errors
 without exposing credentials or unrestricted response text: authentication failure,
@@ -135,8 +137,9 @@ RecordedAtUtc is database insert time, not commit time. A long transaction commi
 later may make a row visible to repeated historical queries after the fact. Database
 clock correctness and ordinary privileges are trusted; administrators can disable
 triggers. No transaction-commit timestamp infrastructure is implemented.
-Observation availability rules from BS-003 remain unchanged; trustworthy capture
-evidence for future ingestion must still establish RetrievedAtUtc/AvailableAtUtc.
+BS-004.1 also adds trusted observation recording and RAW temporal-link validation;
+see [audit remediation and retention](audit-remediation.md). Capture timestamps
+remain separate from database recording evidence.
 
 ## Bounded observation history
 
@@ -144,7 +147,8 @@ Use `ReadPageAsOfAsync(query, pageSize, cursor, token)`. History:MaximumPageSize
 (environment `History__MaximumPageSize`) configures the cap: default 200, allowed
 1–1000. The adapter takes only pageSize+1 rows to detect a next page. Ordering and
 cursor keys are AvailableAtUtc, CreatedAtUtc, Id ascending, using PostgreSQL tuple
-comparison. Every page reapplies AvailableAtUtc <= AsOfUtc and all query filters.
+comparison. Every page reapplies AvailableAtUtc <= AsOfUtc, RecordedAtUtc <= AsOfUtc
+and all query filters.
 Cursors carry the complete original query; changing kind, source, identity,
 canonical target or cutoff is rejected. Keys require UTC microsecond precision,
 nonempty UUID and availability within the cutoff. They are application value

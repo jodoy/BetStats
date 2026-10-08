@@ -56,6 +56,7 @@ public sealed class Observation
     public DateTime RetrievedAtUtc { get; private set; }
     public DateTime AvailableAtUtc { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
+    public DateTime RecordedAtUtc { get; private set; }
     public Guid? RawPayloadId { get; private set; }
     public int Version { get; private set; }
     public Guid? CorrectsObservationId { get; private set; }

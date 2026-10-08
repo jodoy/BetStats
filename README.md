@@ -2,7 +2,7 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-004 source governance and provider contract foundation.
+> **Status:** BS-004.1 audit remediation and trusted observation foundation.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
@@ -180,7 +180,8 @@ and [ADR 0014](docs/adr/0014-persistence-foundation.md).
 BS-003 adds six `canonical` tables and three `provenance` tables, preserving the
 initial migration and ingestion rows. Canonical UUIDs are independent of source IDs.
 Four reference sports are seeded; all other data in tests is synthetic.
-Observation history filters `AvailableAtUtc <= AsOfUtc` and orders by availability,
+Observation history filters `AvailableAtUtc <= AsOfUtc` and, since BS-004.1,
+`RecordedAtUtc <= AsOfUtc`, then orders by availability,
 creation time and UUID. Corrections append new rows and later identity decisions
 do not remap earlier observations. Current canonical tables are not historical evidence.
 See the [data model and ER diagram](docs/en/data/canonical-sports-model.md),
@@ -201,6 +202,12 @@ with a default cap of 200 (`History__MaximumPageSize`, 1–1000). The existing l
 query throws on overflow; callers should use `ReadPageAsOfAsync` for larger results.
 See [governance, provider contracts and limitations](docs/en/data/source-governance.md)
 and [ADR 0016](docs/adr/0016-source-governance-and-bounded-history.md).
+
+BS-004.1 adds database-controlled observation recording time, current source gates,
+malformed adapter response validation and database RAW immutability. See
+[audit remediation, migration and privileged retention](docs/en/data/audit-remediation.md)
+and [ADR 0017](docs/adr/0017-audit-remediation-and-trusted-observations.md).
+Recording is INSERT time, not a commit-time snapshot guarantee.
 
 ## Documentation
 

@@ -8,8 +8,8 @@ See [ADR 0014](../../adr/0014-persistence-foundation.md).
 
 This page documents the BS-002 ingestion layer. BS-003 adds independent canonical
 and provenance schemas; see the [canonical model and historical query contract](canonical-sports-model.md).
-The RAW guard limitations below still apply to ingestion metadata; the new
-provenance tables additionally have database immutability triggers.
+BS-004.1 adds database RAW immutability and a controlled privileged retention
+design; see [audit remediation](audit-remediation.md).
 BS-004 adds [source policies, audit and trusted identity availability](source-governance.md)
 in an additive migration; existing ingestion definitions remain intact.
 
@@ -28,8 +28,9 @@ for another source. Repeated hashes are allowed to preserve separate retrievals.
 UUIDs and UTC timestamps are supplied by callers. PostgreSQL stores timestamps
 as `timestamp with time zone`, at microsecond precision; non-UTC DateTime values
 are rejected by the context. `RawPayload` has init-only fields and context saves
-reject updates/deletes. Raw SQL and EF bulk updates can bypass that guard; this
-is not a database-wide immutable-storage guarantee.
+reject updates/deletes. Since BS-004.1, PostgreSQL also rejects ordinary RAW
+UPDATE/DELETE/TRUNCATE, including direct SQL and EF bulk operations. Privileged
+administrators can bypass triggers; external payload storage is not protected by them.
 
 `ExternalReference` describes the provider capture, not a canonical sports ID.
 `StorageKey` is an opaque reference, not a signed URL or embedded payload. No

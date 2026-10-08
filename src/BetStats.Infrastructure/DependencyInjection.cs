@@ -18,6 +18,7 @@ public static class DependencyInjection
         services.AddScoped<IIdentityResolutionHistory, IdentityResolutionHistory>();
         services.AddScoped<ISourcePolicyHistory, SourcePolicyHistory>();
         services.AddScoped<ISourcePolicyEvaluator, SourcePolicyEvaluator>();
+        services.AddScoped<ISourceOperationalStatus, SourceOperationalStatusReader>();
         services.AddScoped<AuthorizedProviderExecutor>();
         services.TryAddSingleton(TimeProvider.System);
         var pageCap = configuration["History:MaximumPageSize"] is { } configuredCap

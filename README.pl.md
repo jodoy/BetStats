@@ -2,7 +2,7 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-004 — governance źródeł i kontrakty providerów.
+> **Status:** BS-004.1 — naprawy audytu i zaufany zapis obserwacji.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
@@ -117,7 +117,8 @@ EF Core 10, Npgsql i Testcontainers są zintegrowane; OpenTelemetry i ML pozosta
 BS-003 dodaje sześć tabel `canonical` i trzy `provenance`, zachowując migrację
 początkową oraz dane ingestion. UUID kanoniczny jest niezależny od identyfikatora
 providera. Migracja dodaje cztery sporty referencyjne; dane testowe są syntetyczne.
-Historia filtruje `AvailableAtUtc <= AsOfUtc` i sortuje po dostępności, utworzeniu
+Historia filtruje `AvailableAtUtc <= AsOfUtc` oraz od BS-004.1 `RecordedAtUtc <= AsOfUtc`
+i sortuje po dostępności, utworzeniu
 i UUID. Korekty tworzą nowe rekordy; późniejsze decyzje tożsamości nie zmieniają
 wcześniejszych obserwacji. Bieżące encje kanoniczne nie są źródłem historii.
 Zobacz [model danych, ER i ograniczenia](docs/pl/data/canonical-sports-model.md)
@@ -137,6 +138,12 @@ je wykluczają. Obserwacje mają paginację keyset, domyślnie do 200 rekordów
 limitu; dla większych wyników użyj `ReadPageAsOfAsync`.
 Zobacz [governance, kontrakty i ograniczenia](docs/pl/data/source-governance.md)
 oraz [ADR 0016](docs/adr/0016-source-governance-and-bounded-history.md).
+
+BS-004.1 dodaje czas zapisu obserwacji nadawany przez bazę, bieżącą kontrolę źródła,
+walidację odpowiedzi adapterów i bazodanową niezmienność RAW. Zobacz
+[naprawy audytu, migrację i retencję](docs/pl/data/audit-remediation.md)
+oraz [ADR 0017](docs/adr/0017-audit-remediation-and-trusted-observations.md).
+Czas INSERT nie gwarantuje snapshotu według COMMIT.
 
 ## Dokumentacja
 

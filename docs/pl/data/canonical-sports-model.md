@@ -53,7 +53,8 @@ opcjonalny utrwalony cel kanoniczny, typ i kontrolowaną wartość. Rejestr:
 | EventStatus | SportingEvent | Enum SportingEventStatus |
 
 Każdy rekord rozdziela opcjonalne SourceEventTimeUtc i SourcePublishedAtUtc od
-RetrievedAtUtc, AvailableAtUtc i CreatedAtUtc. Dostępność i utworzenie nie mogą
+RetrievedAtUtc, AvailableAtUtc, CreatedAtUtc i zaufanego RecordedAtUtc DB (BS-004.1).
+Dostępność i utworzenie nie mogą
 poprzedzać pobrania. Czas wydarzenia/publikacji nie oznacza dostępności.
 Wspólne FK RAW/źródło blokują odwołanie do payloadu innego źródła.
 Korekta jest nowym rekordem: ten sam identity/typ, poprzednik, kolejna wersja
@@ -68,7 +69,7 @@ wymagają przyszłego kontrolowanego procesu. Nie ma automatycznego purge.
 `IObservationHistory.ReadAsOfAsync(new ObservationQuery(kind, asOfUtc,
 canonicalId, dataSourceId, providerIdentityId))` zwraca całą dopuszczalną historię.
 Opcjonalne filtry ograniczają zakres. Adapter Infrastructure używa AsNoTracking,
-najpierw `AvailableAtUtc <= AsOfUtc`, potem sortowania AvailableAtUtc,
+najpierw `AvailableAtUtc <= AsOfUtc` i `RecordedAtUtc <= AsOfUtc`, potem sortowania AvailableAtUtc,
 CreatedAtUtc, UUID rosnąco. Indeksy obejmują kind/identity/cele i dostępność.
 Filtr canonicalId wyklucza unresolved; filtr source/identity pozwala je odczytać.
 BS-004 dodaje paginację keyset przez ReadPageAsOfAsync; domyślny limit 200 jest
@@ -76,7 +77,7 @@ konfigurowalny, a stary odczyt listy zgłasza błąd przy przekroczeniu.
 Nie ma projekcji wybierającej najnowszy wynik. Szczegóły:
 [paginacja i zaufana dostępność](source-governance.md).
 
-Przykład: rekord pobrany 1 stycznia jest widoczny 2 stycznia; korekta pobrana
+Przykład: rekord pobrany i zapisany w DB 1 stycznia jest widoczny 2 stycznia; korekta pobrana
 3 stycznia nie jest widoczna 2 stycznia nawet przy czasie źródłowym 31 grudnia.
 Zapytanie z 3 stycznia zwraca oba rekordy i relację korekty. Nie łączymy historii
 z bieżącym stanem encji lub najnowszym mapowaniem. Późniejsza decyzja nie
@@ -86,6 +87,7 @@ Nowe czasy i cutoff wymagają DateTime UTC z precyzją mikrosekund PostgreSQL.
 Drobniejsze ticki są odrzucane, aby nie zaokrąglać czasu w kluczach poprzedników.
 Dotychczasowa walidacja BS-002 pozostaje zachowana. Przyszłe ingestion musi
 ustalać defensywną dostępność na podstawie zaufanych dowodów pobrania.
+Zobacz [BS-004.1: zapis DB, stare dane i reprocessing RAW](audit-remediation.md).
 
 ## ER
 

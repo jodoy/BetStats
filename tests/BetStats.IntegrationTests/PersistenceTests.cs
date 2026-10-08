@@ -16,7 +16,7 @@ public sealed class PersistenceTests(PostgreSqlFixture fixture) : IClassFixture<
     public async Task Fresh_database_is_migrated_and_has_no_pending_model_changes()
     {
         await using var context = fixture.CreateContext();
-        Assert.Equal(new[] { "20261007234734_InitialPersistence", "20261008001440_CanonicalSportsAndTemporalObservations", "20261008005300_SourceGovernanceAndTrustedHistory" },
+        Assert.Equal(new[] { "20261007234734_InitialPersistence", "20261008001440_CanonicalSportsAndTemporalObservations", "20261008005300_SourceGovernanceAndTrustedHistory", "20261008014627_AuditRemediation" },
             await context.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.False(context.Database.HasPendingModelChanges());

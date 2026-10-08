@@ -3,6 +3,7 @@ using BetStats.Domain.Observations;
 using BetStats.Domain.Sports;
 using BetStats.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace BetStats.Infrastructure.Persistence;
@@ -57,6 +58,7 @@ internal static class ProvenanceModelConfiguration
         });
         ConfigureTargets(observations);
         observations.HasKey(item => item.Id); observations.Property(item => item.Id).ValueGeneratedNever();
+        observations.Property(item => item.RecordedAtUtc).HasDefaultValueSql("clock_timestamp()").Metadata.SetBeforeSaveBehavior(PropertySaveBehavior.Ignore);
         observations.HasAlternateKey(item => new { item.Id, item.ProviderIdentityId, item.Type, item.Version, item.AvailableAtUtc });
         observations.Property(item => item.Type).HasConversion<string>().HasMaxLength(20);
         observations.Property(item => item.StatusValue).HasConversion<string>().HasMaxLength(20);

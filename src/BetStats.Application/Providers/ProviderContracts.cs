@@ -37,21 +37,38 @@ public interface IProviderAdapter
     Task<ProviderResult> ExecuteAsync(ProviderRequest request, CancellationToken cancellationToken);
 }
 
-public sealed class AuthorizedProviderExecutor(ISourcePolicyEvaluator evaluator, TimeProvider clock)
+public sealed class AuthorizedProviderExecutor(ISourcePolicyEvaluator evaluator, TimeProvider clock, ISourceOperationalStatus sourceStatus)
 {
     public async Task<ProviderResult> ExecuteAsync(IProviderAdapter provider, ProviderRequest request, RequestBudget budget, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(provider); ArgumentNullException.ThrowIfNull(request); ArgumentNullException.ThrowIfNull(budget);
         cancellationToken.ThrowIfCancellationRequested();
         static ProviderResult Failure(ProviderErrorCategory category, string code) => new(false, new(category, code));
-        if (!provider.Descriptor.Sports.Contains(request.SportId) || !provider.Descriptor.Capabilities.Contains(request.Capability))
-            return Failure(ProviderErrorCategory.UnsupportedCapability, "unsupported_capability");
-        if (!provider.ValidateConfiguration().Valid) return Failure(ProviderErrorCategory.InvalidConfiguration, "invalid_configuration");
+        ProviderDescriptor descriptor;
+        try
+        {
+            descriptor = provider.Descriptor;
+            if (descriptor is null) return Failure(ProviderErrorCategory.InvalidConfiguration, "invalid_configuration");
+            if (!descriptor.Sports.Contains(request.SportId) || !descriptor.Capabilities.Contains(request.Capability))
+                return Failure(ProviderErrorCategory.UnsupportedCapability, "unsupported_capability");
+            if (provider.ValidateConfiguration() is not { Valid: true }) return Failure(ProviderErrorCategory.InvalidConfiguration, "invalid_configuration");
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Failure(ProviderErrorCategory.InvalidConfiguration, "invalid_configuration");
+        }
+        var initialStatus = await sourceStatus.ReadAsync(descriptor.DataSourceId, cancellationToken);
+        if (initialStatus != SourceOperationalStatus.Enabled)
+            return Failure(ProviderErrorCategory.PermissionDenied, initialStatus == SourceOperationalStatus.Missing ? "source_missing" : "source_disabled");
         var purpose = request.Capability == ProviderCapability.MetadataDiscovery ? DataPurpose.MetadataDiscovery : DataPurpose.DataRetrieval;
         var now = clock.GetUtcNow().UtcDateTime;
         now = now.AddTicks(-(now.Ticks % 10));
-        var authorization = await evaluator.EvaluateAsync(provider.Descriptor.DataSourceId, purpose, now, request.Context, cancellationToken);
+        var authorization = await evaluator.EvaluateAsync(descriptor.DataSourceId, purpose, now, request.Context, cancellationToken);
         if (!authorization.Allowed) return Failure(ProviderErrorCategory.PermissionDenied, "policy_" + authorization.Reason);
+        var status = await sourceStatus.ReadAsync(descriptor.DataSourceId, cancellationToken);
+        if (status != SourceOperationalStatus.Enabled)
+            return Failure(ProviderErrorCategory.PermissionDenied, status == SourceOperationalStatus.Missing ? "source_missing" : "source_disabled");
+        cancellationToken.ThrowIfCancellationRequested();
         var lease = budget.TryAcquire();
         if (lease is null) return Failure(ProviderErrorCategory.BudgetExhausted, "request_budget_exhausted");
         using var timeout = new CancellationTokenSource(budget.Configuration.Timeout, clock);
@@ -61,10 +78,13 @@ public sealed class AuthorizedProviderExecutor(ISourcePolicyEvaluator evaluator,
         {
             operation = provider.ExecuteAsync(request, linked.Token);
             var result = await operation.WaitAsync(linked.Token);
-            if (result.Success == (result.Error is not null)) return Failure(ProviderErrorCategory.InvalidResponse, "inconsistent_result");
+            if (result is null || result.Success == (result.Error is not null)) return Failure(ProviderErrorCategory.InvalidResponse, "inconsistent_result");
+            if (result.Error is { } error && (!Enum.IsDefined(error.Category) || string.IsNullOrWhiteSpace(error.Code)))
+                return Failure(ProviderErrorCategory.InvalidResponse, "invalid_error");
+            if (result.Error?.RetryAfter is { } delay && (delay < TimeSpan.Zero || delay > DateTimeOffset.MaxValue - clock.GetUtcNow() || result.Error.Category != ProviderErrorCategory.RateLimitExceeded))
+                return Failure(ProviderErrorCategory.InvalidResponse, "invalid_retry_after");
             if (result.Error is { Category: ProviderErrorCategory.RateLimitExceeded, RetryAfter: { } retryAfter })
             {
-                if (retryAfter < TimeSpan.Zero) return Failure(ProviderErrorCategory.InvalidResponse, "invalid_retry_after");
                 budget.ApplyRetryAfter(retryAfter);
             }
             return result; // No automatic retries, regardless of error category.
@@ -72,6 +92,15 @@ public sealed class AuthorizedProviderExecutor(ISourcePolicyEvaluator evaluator,
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeout.IsCancellationRequested)
         {
             return Failure(ProviderErrorCategory.Timeout, "provider_timeout");
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return Failure(ProviderErrorCategory.TemporaryUnavailability, "provider_execution_failed");
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
         }
         finally
         {
