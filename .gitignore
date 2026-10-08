@@ -8,7 +8,7 @@ obj/
 *.userosscache
 *.sln.docstates
 TestResults/
-coverage/
+/coverage/
 *.trx
 
 # Build / packages

@@ -35,7 +35,7 @@ public sealed class DatasetMigrationTests
         db.ChangeTracker.Clear();
         Assert.Equal(qualityRecorded, (await db.QualityAssessments.SingleAsync(timeout.Token)).RecordedAtUtc);
         Assert.Equal(rawRecorded, (await db.RawPayloads.SingleAsync(timeout.Token)).RecordedAtUtc);
-        Assert.Equal(7, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count()); Assert.False(db.Database.HasPendingModelChanges());
+        Assert.Equal(8, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count()); Assert.False(db.Database.HasPendingModelChanges());
         var count = await db.Database.SqlQuery<int>($"SELECT count(*)::integer AS \"Value\" FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='datasets' AND NOT t.tgisinternal").SingleAsync(timeout.Token);
         Assert.Equal(6, count);
     }

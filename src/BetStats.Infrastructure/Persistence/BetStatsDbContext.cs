@@ -12,6 +12,9 @@ namespace BetStats.Infrastructure.Persistence;
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
     public DbSet<DataSource> DataSources => Set<DataSource>();
+    public DbSet<BetStats.Domain.Coverage.CoverageEvidence> CoverageEvidence => Set<BetStats.Domain.Coverage.CoverageEvidence>();
+    public DbSet<BetStats.Domain.Coverage.CoverageReview> CoverageReviews => Set<BetStats.Domain.Coverage.CoverageReview>();
+    public DbSet<BetStats.Domain.Coverage.EventTimeEvidence> EventTimeEvidence => Set<BetStats.Domain.Coverage.EventTimeEvidence>();
     public DbSet<DatasetArtifact> DatasetArtifacts => Set<DatasetArtifact>();
     public DbSet<DatasetFeatureRecord> DatasetFeatures => Set<DatasetFeatureRecord>();
     public DbSet<DatasetBuildEvent> DatasetBuildEvents => Set<DatasetBuildEvent>();
@@ -97,6 +100,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         IngestionModelConfiguration.Configure(modelBuilder);
         QualityModelConfiguration.Configure(modelBuilder);
         DatasetModelConfiguration.Configure(modelBuilder);
+        CoverageModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -115,6 +119,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is BetStats.Domain.Coverage.CoverageEvidence or BetStats.Domain.Coverage.CoverageReview or BetStats.Domain.Coverage.EventTimeEvidence && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Coverage and event-time history are append-only.");
             if (entry.Entity is DatasetArtifact or DatasetFeatureRecord or DatasetBuildEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Dataset artifacts, features and build audit are append-only.");
             if (entry.Entity is QualityAssessment or MaintenanceEvent && entry.State is EntityState.Modified or EntityState.Deleted)

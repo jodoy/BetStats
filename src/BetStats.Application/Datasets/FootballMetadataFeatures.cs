@@ -6,6 +6,9 @@ public sealed record FeatureValue(string Name, int Version, int? Value, string? 
 public sealed record FeatureVector(int SchemaVersion, Guid TargetEventId, DateTime PredictionCutoffUtc, IReadOnlyList<FeatureValue> Values);
 public static class FootballMetadataFeatures
 {
+    public static BetStats.Application.Coverage.FeatureCoverageRequirement Requirement(FeatureDefinition feature) =>
+        new(feature.Name, 1, [BetStats.Domain.Observations.ObservationType.EventDate, BetStats.Domain.Observations.ObservationType.EventStatus],
+            feature.LookbackDays, true, "Completed", 1, true, false);
     public static IReadOnlyList<FeatureDefinition> Catalog { get; } = new[] { "away", "home" }.SelectMany(side => new[] {
         new FeatureDefinition(side + "_days_since_last_observed_completed_match", 1, "nullable-int32", "calendar-days", null, "unavailable", "date,status,identity,RAW,quality,policy", "football", "strictly prior UTC calendar day; partial observed history"),
         new FeatureDefinition(side + "_observed_completed_matches_last_30d", 1, "nullable-int32", "observed-matches", 30, "unavailable", "date,status,identity,RAW,quality,policy", "football", "strictly prior UTC calendar day; lower bound, not total activity")

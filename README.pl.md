@@ -173,6 +173,12 @@ plik/DB nie stanowią atomowej transakcji.
 
 ## Dokumentacja
 
+BS-008 dodaje jawne pokrycie z przeglądem, pochodzenie czasu zdarzeń, manifesty v2
+i przyszłe kontrakty ewaluacji. Snapshoty v1 pozostają niezmienne i czytelne.
+Nie deklarujemy kompletności realnych danych ani jakości modeli. Zobacz
+[semantykę, komendy i migrację](docs/pl/data/coverage-time-evaluation.md)
+oraz [ADR 0021](docs/adr/0021-coverage-time-evaluation.md).
+
 - 🇬🇧 [Software & Product Engineering Specification v1.0 — English](docs/specifications/BetStats_2_0_Software_Product_Engineering_Specification_v1_0_EN.docx)
 - 🇵🇱 [Specyfikacja Produktu i Inżynierii v1.0 — Polski](docs/specifications/BetStats_2_0_Specyfikacja_Produktu_i_Inzynierii_v1_0_PL.docx)
 - ADR: `docs/adr/`

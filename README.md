@@ -239,6 +239,12 @@ the repository; filesystem/PostgreSQL writes are not a cross-system transaction.
 
 ## Documentation
 
+BS-008 adds explicit reviewed coverage, event-time provenance, v2 dataset manifests
+and future evaluation contracts. Existing v1 snapshots remain immutable/readable.
+No real-world completeness or model performance is claimed. See
+[coverage semantics, development commands and migration](docs/en/data/coverage-time-evaluation.md)
+and [ADR 0021](docs/adr/0021-coverage-time-evaluation.md).
+
 - 🇬🇧 [Software & Product Engineering Specification v1.0 — English](docs/specifications/BetStats_2_0_Software_Product_Engineering_Specification_v1_0_EN.docx)
 - 🇵🇱 [Specyfikacja Produktu i Inżynierii v1.0 — Polski](docs/specifications/BetStats_2_0_Specyfikacja_Produktu_i_Inzynierii_v1_0_PL.docx)
 - [Architecture Decision Records](docs/adr/)

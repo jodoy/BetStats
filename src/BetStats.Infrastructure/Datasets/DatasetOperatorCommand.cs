@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text;
 using BetStats.Application.Datasets;
 using BetStats.Application.Ingestion;
 using BetStats.Application.Providers;
@@ -18,6 +19,10 @@ public static class DatasetOperatorCommand
         var datasets = services.GetRequiredService<IDatasets>(); object result; var success = true;
         switch (Text("Action"))
         {
+            case "build":
+                var definitionInput = CanonicalDatasetJson.Deserialize<DatasetDefinition>(Encoding.UTF8.GetBytes(Text("DefinitionJson")));
+                var frozen = await datasets.BuildAsync(new(definitionInput, Text("OperatorId"), Text("Reason")), token);
+                result = frozen; success = frozen.Status == DatasetBuildStatus.Succeeded; break;
             case "build-synthetic":
                 if (Text("ApproveSynthetic") != "true") throw new ArgumentException("Explicit synthetic approval required.");
                 var (_, definition) = await SyntheticDatasetDemo.PrepareAsync(services.GetRequiredService<BetStatsDbContext>(),

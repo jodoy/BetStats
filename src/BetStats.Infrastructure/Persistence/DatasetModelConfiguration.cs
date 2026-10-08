@@ -10,7 +10,7 @@ internal static class DatasetModelConfiguration
     {
         var artifact = model.Entity<DatasetArtifact>();
         artifact.ToTable("Snapshots", "datasets", t => {
-            t.HasCheckConstraint("CK_Snapshots_Content", "\"RowCount\" BETWEEN 1 AND 100 AND \"FeatureSchemaVersion\" = 1 AND octet_length(\"Content\") BETWEEN 1 AND 16777216");
+            t.HasCheckConstraint("CK_Snapshots_Content", "\"RowCount\" BETWEEN 1 AND 100 AND \"FeatureSchemaVersion\" IN (1,2) AND octet_length(\"Content\") BETWEEN 1 AND 16777216");
             t.HasCheckConstraint("CK_Snapshots_Hash", "\"ManifestHash\" ~ '^[0-9a-f]{64}$' AND \"DefinitionFingerprint\" ~ '^[0-9a-f]{64}$'");
         });
         artifact.HasKey(a => a.Id); artifact.Property(a => a.Id).ValueGeneratedNever();
