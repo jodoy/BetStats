@@ -196,8 +196,8 @@ public sealed class FootballIngestionTests(PostgreSqlFixture fixture) : IClassFi
     {
         public Task<ImportReport> BeginAsync(Guid attemptId, Guid sourceId, CancellationToken token) => inner.BeginAsync(attemptId, sourceId, token);
         public Task EnsureCaptureAllowedAsync(Guid sourceId, CancellationToken token) => inner.EnsureCaptureAllowedAsync(sourceId, token);
-        public Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, CancellationToken token) =>
-            failCapture ? throw new InvalidOperationException("Synthetic metadata persistence failure") : inner.CaptureAsync(attempt, content, payload, token);
+        public Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, FootballImportScope scope, CancellationToken token) =>
+            failCapture ? throw new InvalidOperationException("Synthetic metadata persistence failure") : inner.CaptureAsync(attempt, content, payload, scope, token);
         public async Task<ImportReport> PublishAsync(ImportReport attempt, RawCapture raw, FootballImportScope scope, FootballParseResult parsed, CancellationToken token)
         { if (beforePublish is not null) await beforePublish(); return await inner.PublishAsync(attempt, raw, scope, parsed, token); }
         public Task CompleteAsync(ImportReport report, CancellationToken token) => inner.CompleteAsync(report, token);

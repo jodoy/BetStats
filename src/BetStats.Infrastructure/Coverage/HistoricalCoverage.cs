@@ -101,7 +101,9 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
         if (!eligibility.Eligible) return false;
         var identity = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == observation.ProviderIdentityId, token);
         var raw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == observation.RawPayloadId, token);
-        var parsed = parser.Parse(await Read(raw, token), new(scope.CompetitionReference, scope.SeasonReference), token);
+        var original = await FootballContext.ReadAsync(db, raw, new(scope.CompetitionReference, scope.SeasonReference), token, cutoff);
+        if (original != new FootballImportScope(scope.CompetitionReference, scope.SeasonReference)) return false;
+        var parsed = parser.Parse(await Read(raw, token), original, token);
         var row = parsed.Records.SingleOrDefault(r => r.MatchReference == identity.ExternalId); if (row is null) return false;
         if (scope.Interval.Kind != IntervalKind.Calendar || scope.Interval.CalendarBasis != "UTC-calendar") return false;
         if (row.MatchDate < scope.Interval.StartDate || row.MatchDate >= scope.Interval.EndDate) return false;
@@ -146,7 +148,9 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             // cannot turn an observed event into affirmative evidence of an empty interval.
             var raw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == o.RawPayloadId, token);
             var anchor = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == o.ProviderIdentityId, token);
-            var parsed = parser.Parse(await Read(raw, token), new(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference), token);
+            var original = await FootballContext.ReadAsync(db, raw, new(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference), token, cutoff);
+            if (original != new FootballImportScope(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference)) continue;
+            var parsed = parser.Parse(await Read(raw, token), original, token);
             var row = parsed.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId);
             if (row is null) return false;
             if (row.MatchDate < evidence.Scope.Interval.StartDate || row.MatchDate >= evidence.Scope.Interval.EndDate) continue;
@@ -184,6 +188,7 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             .OrderBy(e => e.Id).Take(201).ToListAsync(token);
         if (candidates.Count > 200) throw new InvalidOperationException("Coverage query bound exceeded.");
         var items = new List<CoverageItem>(); var now = await QualityPersistence.Now(db, token);
+        var factRows = new Dictionary<Guid, FootballParseResult>();
         foreach (var e in candidates.Where(e => e.Scope.SameDimensions(query.Scope) && e.Scope.Interval.Compatible(query.Scope.Interval) && CoverageRules.Intersection(e.Scope.Interval, query.Scope.Interval) is not null))
         {
             var raw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == e.RawId, token);
@@ -199,15 +204,32 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
                 var result = await gate.EvaluateAsync(new(observationId, query.AsOfUtc, query.Purpose, query.Context, query.Mode, query.ReconstructionUtc), token);
                 if (result.DecisionId is { } decision) ids.Add(decision); quality.AddRange(result.AssessmentIds);
             }
-            items.Add(new(e, review, status, ids.Distinct().Order().ToArray(), quality.Distinct().Order().ToArray(), reasons));
+            var facts = new List<CoverageFact>();
+            foreach (var observationId in e.SupportingObservationIds.Order())
+            {
+                var observation = await db.Observations.AsNoTracking().SingleAsync(o => o.Id == observationId, token);
+                var date = observation.DateValue;
+                if (date is null && status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty)
+                {
+                    var observationRawId = observation.RawPayloadId ?? throw new InvalidDataException("Observation RAW missing.");
+                    if (!factRows.TryGetValue(observationRawId, out var rows))
+                    {
+                        var observationRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == observationRawId, token);
+                        var original = await FootballContext.ReadAsync(db, observationRaw, new(e.Scope.CompetitionReference, e.Scope.SeasonReference), token, query.AsOfUtc);
+                        rows = parser.Parse(await Read(observationRaw, token), original, token); factRows.Add(observationRawId, rows);
+                    }
+                    var anchor = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == observation.ProviderIdentityId, token);
+                    date = rows.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId)?.MatchDate;
+                }
+                facts.Add(new(observationId, date, null));
+            }
+            items.Add(new(e, review, status, ids.Distinct().Order().ToArray(), quality.Distinct().Order().ToArray(), reasons, facts));
         }
         var classification = CoverageRules.Classify(query.Scope.Interval, items);
         var strong = items.Where(i => i.Status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty).Select(i => i.Evidence.Scope.Interval);
         var conflicts = new List<CoverageInterval>();
         for (var i = 0; i < items.Count; i++) for (var j = i + 1; j < items.Count; j++)
-            if (items[i].Status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty && items[j].Status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty &&
-                (items[i].Status != items[j].Status || !items[i].Evidence.SupportingObservationIds.SequenceEqual(items[j].Evidence.SupportingObservationIds)) &&
-                CoverageRules.Intersection(items[i].Evidence.Scope.Interval, items[j].Evidence.Scope.Interval) is { } overlap) conflicts.Add(overlap);
+            if (CoverageRules.Conflict(items[i], items[j]) is { } overlap && CoverageRules.Intersection(overlap, query.Scope.Interval) is { } clipped) conflicts.Add(clipped);
         conflicts.AddRange(items.Where(i => i.Status == CoverageStatus.Conflicting).Select(i => CoverageRules.Intersection(i.Evidence.Scope.Interval, query.Scope.Interval)!));
         return new(query, classification, true, items, CoverageRules.Gaps(query.Scope.Interval, strong),
             items.Where(i => i.Status == CoverageStatus.Partial).Select(i => CoverageRules.Intersection(i.Evidence.Scope.Interval, query.Scope.Interval)!).ToArray(),
@@ -227,8 +249,18 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
         }
         else
         {
-            var supplied = CanonicalDatasetJson.Deserialize<EventTimeValue>(bytes.ToArray());
-            if (supplied != request.Value) throw new InvalidDataException("Event-time RAW claim mismatch.");
+            var supplied = CanonicalDatasetJson.Deserialize<EventTimeSourceClaim>(bytes.ToArray());
+            if (supplied.Version != 1 || supplied.Value != request.Value || supplied.OriginalRawId != observation.RawPayloadId || supplied.Context is null)
+                throw new InvalidDataException("Bound source event-time claim required.");
+            var identity = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == observation.ProviderIdentityId, token);
+            if (identity.ExternalId != supplied.ProviderEventReference) throw new InvalidDataException("Event-time provider event mismatch.");
+            var originalRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == supplied.OriginalRawId && r.DataSourceId == raw.DataSourceId, token);
+            var original = await FootballContext.ReadAsync(db, originalRaw, new(supplied.Context.CompetitionReference, supplied.Context.SeasonReference), token);
+            if (original != new FootballImportScope(supplied.Context.CompetitionReference, supplied.Context.SeasonReference) ||
+                !parser.Parse(await Read(originalRaw, token), original, token).Records.Any(r => r.MatchReference == supplied.ProviderEventReference && r.MatchDate == observation.DateValue))
+                throw new InvalidDataException("Event-time original publication mismatch.");
+            var eligibility = await gate.EvaluateAsync(new(observation.Id, await QualityPersistence.Now(db, token), DataPurpose.InternalAnalytics, new(), DatasetMode.HistoricalAsKnown), token);
+            if (!eligibility.Eligible || eligibility.InterpretedTargetId is null) throw new InvalidDataException("Resolved historical event evidence required.");
         }
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token); await QualityPersistence.Lock(db, observation.DataSourceId, token);
         var now = await QualityPersistence.Now(db, token); var policy = await Authorize(observation.DataSourceId, DataPurpose.InternalAnalytics, new(), now, token);
@@ -260,6 +292,25 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             if (!(await gate.EvaluateAsync(new(e.DateObservationId, asOf, purpose, context, mode, reconstruction), token)).Eligible) continue;
             var resolution = EventTimeRules.Resolve(e.Value);
             var dateObservation = await db.Observations.AsNoTracking().SingleAsync(o => o.Id == e.DateObservationId, token);
+            if (e.Value.Precision != EventTimePrecision.DateOnly)
+            {
+                try
+                {
+                    var bound = CanonicalDatasetJson.Deserialize<EventTimeSourceClaim>((await Read(raw, token)).ToArray());
+                    if (bound.Version != 1 || bound.Value != e.Value || bound.OriginalRawId != dateObservation.RawPayloadId ||
+                        bound.ProviderEventReference != identity.ExternalId || bound.Context is null)
+                        resolution = new(null, e.Value.Precision, "unverified_operator_time_assertion");
+                    else
+                    {
+                        var originalRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == bound.OriginalRawId && r.DataSourceId == e.SourceId, token);
+                        var original = await FootballContext.ReadAsync(db, originalRaw, new(bound.Context.CompetitionReference, bound.Context.SeasonReference), token, asOf);
+                        if (original != new FootballImportScope(bound.Context.CompetitionReference, bound.Context.SeasonReference))
+                            resolution = new(null, e.Value.Precision, "event_time_original_context_mismatch");
+                    }
+                }
+                catch (Exception error) when (error is System.Text.Json.JsonException or InvalidDataException or IOException)
+                { resolution = new(null, e.Value.Precision, "unverified_operator_time_assertion"); }
+            }
             if (e.Value.LocalDate is { } localDate && dateObservation.DateValue is { } observedDate && localDate != observedDate)
                 resolution = new(null, e.Value.Precision, "event_time_date_disagrees_with_date_observation");
             if (claims.Any(other => other.Id != e.Id && EventTimeRules.Conflicts(e.Value, other.Value))) resolution = new(null, e.Value.Precision, "conflicting_event_time_claims");
@@ -305,11 +356,12 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             Freeze("coverage-policy", id, Policy(await db.SourcePolicies.AsNoTracking().Include(p => p.Permissions).SingleAsync(v => v.Id == id, token)));
         var rawIds = reports.SelectMany(r => r.Items).Select(i => i.Evidence.RawId).Concat(times.Select(t => t.Evidence.RawId)).Distinct().Order().ToArray();
         foreach (var id in rawIds) Freeze("raw", id, await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == id, token));
-        return new(row.EventId, row.PredictionCutoffUtc, 1, reports, gates, times.OrderBy(t => t.EventId).ThenBy(t => t.Evidence.Id).ToArray(), new(null, EventTimePrecision.DateOnly, "date_only_observations_no_kickoff"),
+        return new(row.EventId, row.PredictionCutoffUtc, 2, reports, gates, times.OrderBy(t => t.EventId).ThenBy(t => t.Evidence.Id).ToArray(), new(null, EventTimePrecision.DateOnly, "date_only_observations_no_kickoff"),
             frozen.OrderBy(f => f.Kind, StringComparer.Ordinal).ThenBy(f => f.Id).ToArray());
     }
     public async Task<bool> VerifyFrozenAsync(DatasetGovernance governance, CancellationToken token = default)
     {
+        if (governance.SchemaVersion is not (1 or 2) || governance.Rows.Any(r => r.CoverageSchemaVersion is not (1 or 2))) return false;
         foreach (var frozen in governance.Rows.SelectMany(r => r.FrozenRecords).DistinctBy(f => (f.Kind, f.Id)))
         {
             object? value = frozen.Kind switch {

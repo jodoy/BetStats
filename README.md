@@ -2,11 +2,22 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-007 frozen dataset artifacts, deterministic metadata features and temporal/policy gates; live provider access disabled.
+> **Status:** BS-008.1 historical integrity remediation and development-only Swagger; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
 > authentication and localization remain planned.
+
+## Local API development
+
+```sh
+dotnet run --project src/BetStats.Api --launch-profile http
+```
+
+Swagger: http://localhost:5000/swagger; OpenAPI: http://localhost:5000/swagger/v1/swagger.json.
+Development-only documentation; public reads are liveness and project-owned sport codes.
+See [historical integrity, API setup and security boundaries](docs/en/data/historical-integrity-development-api.md)
+and [ADR 0022](docs/adr/0022-historical-integrity-and-development-api.md).
 
 ## Product boundary
 

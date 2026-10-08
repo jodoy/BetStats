@@ -19,7 +19,7 @@ public sealed class CoverageAndEvaluationTests
         Id = Guid.NewGuid(), SourceId = Scope.SourceId, Scope = Scope with { Interval = interval ?? Scope.Interval }, Claim = status, Basis = CoverageBasis.OwnedFixtureInventory,
         EvidenceReference = "fictional-inventory", RawId = Guid.NewGuid(), RawHash = new('a', 64), PolicyId = Guid.NewGuid(), Version = 1, SupportingObservationIds = ids ?? [],
         RetrievedAtUtc = T, AvailableAtUtc = T, ValidUntilUtc = T.AddDays(1), OperatorId = "fictional", Reason = "unit proof" }, null, status, [], [], []);
-    private static CoverageReport Report(CoverageStatus status, bool authorized = true) => new(new(Scope, T, DatasetMode.HistoricalAsKnown, null, DataPurpose.InternalAnalytics, new()),
+    private static CoverageReport Report(CoverageStatus status, bool authorized = true) => new(new(Scope with { Interval = Interval(10, 20) }, T, DatasetMode.HistoricalAsKnown, null, DataPurpose.InternalAnalytics, new()),
         status, authorized, [Item(status)], [], [], [], [], []);
     private static FeatureCoverageRequirement Requirement(bool partial) => new("observed", 1, [ObservationType.EventDate], 10, true, "Completed", 1, partial, !partial);
 
@@ -86,19 +86,20 @@ public sealed class CoverageAndEvaluationTests
     private static EvaluationDefinition Definition(EvaluationTarget target = EvaluationTarget.BothTeamsScoring) => new(1, Scope.SportId, target, DatasetMode.HistoricalAsKnown, null,
         PredictionCutoffPolicy.BeforeCalendarDay, TimeSpan.FromDays(1), ["features", "event-time", "quality", "coverage", "source-policy"], target.ToString(), 1,
         Requirement(false), [EvaluationContracts.Metrics.Single(m => m.Name == (target == EvaluationTarget.TotalGoals ? "mae" : "brier"))]);
+    private static EvaluationEventEvidence CalendarEvidence() => new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), new(new(2026, 1, 21), null, null, null, null, EventTimePrecision.DateOnly), true, T, T, "UTC-calendar");
     private static readonly FeatureCoverageDecision Complete = new("observed", FeatureCoverageOutcome.Eligible, [], [], []);
     [Theory] [InlineData(EvaluationTarget.MatchWinner)] [InlineData(EvaluationTarget.TotalGoals)] [InlineData(EvaluationTarget.BothTeamsScoring)] [InlineData(EvaluationTarget.FirstHalfGoalOccurrence)]
     public void Future_target_definitions_are_valid_without_computing_outcomes(EvaluationTarget target) => Definition(target).Validate();
     [Fact] public void Late_label_is_not_a_feature_but_is_valid_for_later_evaluation() {
         var label = new OutcomeAvailability(Guid.NewGuid(), T.AddHours(3), T.AddHours(4), 1);
         Assert.False(EvaluationContracts.CanUseAsFeature(label, T));
-        Assert.True(EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), T, label, T.AddDays(1), true, Complete).Eligible);
-        Assert.Contains("feature_first_available_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(1), T, label, T.AddDays(1), true, Complete).Reasons);
-        Assert.Contains("feature_first_recorded_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), T.AddHours(1), label, T.AddDays(1), true, Complete).Reasons);
+        Assert.True(EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), T, label, T.AddDays(1), true, Complete, CalendarEvidence()).Eligible);
+        Assert.Contains("feature_first_available_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(1), T, label, T.AddDays(1), true, Complete, CalendarEvidence()).Reasons);
+        Assert.Contains("feature_first_recorded_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), T.AddHours(1), label, T.AddDays(1), true, Complete, CalendarEvidence()).Reasons);
     }
     [Fact] public void Labels_need_trusted_receipt_permission_coverage_and_version() {
         var label = new OutcomeAvailability(Guid.NewGuid(), T.AddHours(1), T.AddDays(2), 2);
-        var denied = EvaluationContracts.Eligibility(Definition(), T, T, T, label, T.AddDays(1), false, Complete with { Outcome = FeatureCoverageOutcome.InsufficientCoverage });
+        var denied = EvaluationContracts.Eligibility(Definition(), T, T, T, label, T.AddDays(1), false, Complete with { Outcome = FeatureCoverageOutcome.InsufficientCoverage }, CalendarEvidence());
         Assert.False(denied.Eligible); Assert.Equal(4, denied.Reasons.Count);
     }
     [Fact] public void Invalid_metric_formats_and_undefined_semantics_are_rejected() {

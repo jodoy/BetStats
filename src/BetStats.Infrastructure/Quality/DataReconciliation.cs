@@ -50,7 +50,9 @@ public sealed class DataReconciliation(BetStatsDbContext db, IRawPayloadStore st
                 ReadOnlyMemory<byte> bytes;
                 try { bytes = await storage.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, raw.ByteLength.Value), token); }
                 catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException) { items.Add(new(raw.Id, 0, ReconciliationOutcome.Failed, "raw_integrity_or_storage")); await RawFailure(execution, raw.Id, operatorId, reason, "raw_integrity_or_storage", token); continue; }
-                var parsed = parser.Parse(bytes, request.Scope, token);
+                var original = await FootballContext.ReadAsync(db, raw, request.Scope, token);
+                if (original != request.Scope) throw new IngestionDeniedException("original_scope_mismatch", "Provenance");
+                var parsed = parser.Parse(bytes, original, token);
                 var selected = new List<FootballMatchRecord>();
                 await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token))
                 {

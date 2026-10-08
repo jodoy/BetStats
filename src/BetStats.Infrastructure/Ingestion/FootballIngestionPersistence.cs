@@ -55,8 +55,9 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
     private async Task LockSource(Guid sourceId, CancellationToken token) =>
         _ = await context.Database.SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM ingestion.\"DataSources\" WHERE \"Id\" = {sourceId} FOR UPDATE").ToListAsync(token);
 
-    public async Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, CancellationToken cancellationToken)
+    public async Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, FootballImportScope scope, CancellationToken cancellationToken)
     {
+        if (!scope.IsValid) throw new IngestionDeniedException("invalid_original_scope", "Provenance");
         if (payload.Length != content.Bytes.Length || payload.Hash != Convert.ToHexStringLower(SHA256.HashData(content.Bytes.Span)))
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -66,7 +67,9 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         var raw = new RawPayload { Id = Guid.NewGuid(), DataSourceId = attempt.DataSourceId, IngestionRunId = attempt.RunId,
             RetrievedAtUtc = content.RetrievedAtUtc, CreatedAtUtc = now, ContentType = content.ContentType, ContentHashSha256 = payload.Hash,
             StorageKey = payload.StorageKey, ByteLength = payload.Length, ExternalReference = "fixture:metadata-v1" };
-        context.Add(raw); await Save(cancellationToken); await transaction.CommitAsync(cancellationToken);
+        context.Add(raw);
+        context.FootballRawContexts.Add(new() { RawId = raw.Id, SourceId = raw.DataSourceId, CompetitionReference = scope.CompetitionReference, SeasonReference = scope.SeasonReference });
+        await Save(cancellationToken); await transaction.CommitAsync(cancellationToken);
         return new(raw.Id, payload, raw.RetrievedAtUtc, raw.CreatedAtUtc, raw.RecordedAtUtc);
     }
 
@@ -80,6 +83,8 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             storedRaw.ContentHashSha256 != raw.Object.Hash || (storedRaw.ByteLength is { } length && length != raw.Object.Length) ||
             storedRaw.RetrievedAtUtc != raw.RetrievedAtUtc || storedRaw.CreatedAtUtc != raw.CreatedAtUtc || storedRaw.RecordedAtUtc != raw.RecordedAtUtc)
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
+        var original = await FootballContext.ReadAsync(context, storedRaw, scope, cancellationToken);
+        if (original != scope) throw new IngestionDeniedException("original_scope_mismatch", "Provenance");
         var key = FootballPublicationKeys.Batch(scope, raw.Object.Hash);
         var previous = await context.IngestionPublications.SingleOrDefaultAsync(r => r.DataSourceId == attempt.DataSourceId && r.Key == key, cancellationToken);
         issues = parsed.Issues.Select(i => $"{i.Row}:{i.Code}").ToArray();

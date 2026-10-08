@@ -11,6 +11,7 @@ namespace BetStats.Infrastructure.Persistence;
 
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
+    public DbSet<FootballRawContext> FootballRawContexts => Set<FootballRawContext>();
     public DbSet<DataSource> DataSources => Set<DataSource>();
     public DbSet<BetStats.Domain.Coverage.CoverageEvidence> CoverageEvidence => Set<BetStats.Domain.Coverage.CoverageEvidence>();
     public DbSet<BetStats.Domain.Coverage.CoverageReview> CoverageReviews => Set<BetStats.Domain.Coverage.CoverageReview>();
@@ -129,7 +130,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
             {
                 throw new InvalidOperationException("RAW capture metadata is append-only; updates and deletes require an explicit retention process.");
             }
-            if (entry.Entity is IngestionAuditEvent or IngestionPublication && entry.State is EntityState.Modified or EntityState.Deleted)
+            if (entry.Entity is IngestionAuditEvent or IngestionPublication or FootballRawContext && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Ingestion audit and publication receipts are append-only.");
             if (entry.Entity is ProviderIdentity or IdentityResolution or Observation && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Identity and observation history is append-only.");

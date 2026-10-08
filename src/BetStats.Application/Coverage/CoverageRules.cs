@@ -31,13 +31,37 @@ public static class CoverageRules
         if (items.Count > 200) throw new ArgumentException("Coverage bound exceeded.");
         var strong = items.Where(i => i.Status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty).ToArray();
         for (var i = 0; i < strong.Length; i++) for (var j = i + 1; j < strong.Length; j++)
-            if (Intersection(strong[i].Evidence.Scope.Interval, strong[j].Evidence.Scope.Interval) is not null &&
-                (strong[i].Status != strong[j].Status || !strong[i].Evidence.SupportingObservationIds.Order().SequenceEqual(strong[j].Evidence.SupportingObservationIds.Order()))) return CoverageStatus.Conflicting;
+            if (Conflict(strong[i], strong[j]) is not null) return CoverageStatus.Conflicting;
         if (items.Any(i => i.Status == CoverageStatus.Conflicting)) return CoverageStatus.Conflicting;
         if (strong.Length > 0 && Gaps(requested, strong.Select(i => i.Evidence.Scope.Interval)).Count == 0)
             return strong.All(i => i.Status == CoverageStatus.VerifiedEmpty) ? CoverageStatus.VerifiedEmpty : CoverageStatus.VerifiedComplete;
         if (items.Any(i => i.Status is CoverageStatus.Partial or CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty)) return CoverageStatus.Partial;
         return items.Count > 0 && items.All(i => i.Status == CoverageStatus.Expired) ? CoverageStatus.Expired : CoverageStatus.Unknown;
+    }
+    public static CoverageInterval? Conflict(CoverageItem a, CoverageItem b)
+    {
+        if (a.Status is not (CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty) ||
+            b.Status is not (CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty)) return null;
+        var overlap = Intersection(a.Evidence.Scope.Interval, b.Evidence.Scope.Interval);
+        if (overlap is null) return null;
+        // Old frozen reports have no positions: they cannot establish new overlap agreement.
+        if (a.Facts is null || b.Facts is null)
+            return a.Status == b.Status && a.Evidence.SupportingObservationIds.Order().SequenceEqual(b.Evidence.SupportingObservationIds.Order()) ? null : overlap;
+        (Guid Id, long Position)[]? InOverlap(CoverageItem item)
+        {
+            var facts = item.Facts!;
+            if (facts.Count > 1000 || facts.Select(f => f.ObservationId).Distinct().Count() != facts.Count ||
+                !facts.Select(f => f.ObservationId).Order().SequenceEqual(item.Evidence.SupportingObservationIds.Order())) return null;
+            if (facts.Any(f => overlap.Kind == IntervalKind.Calendar ? f.CalendarDate is null || f.UtcInstant is not null :
+                f.UtcInstant is not { Kind: DateTimeKind.Utc } || f.UtcInstant.Value.Ticks % 10 != 0 || f.CalendarDate is not null)) return null;
+            if (facts.Any(f => overlap.Kind == IntervalKind.Calendar ? f.CalendarDate!.Value.DayNumber < item.Evidence.Scope.Interval.Start || f.CalendarDate.Value.DayNumber >= item.Evidence.Scope.Interval.End :
+                f.UtcInstant!.Value.Ticks < item.Evidence.Scope.Interval.Start || f.UtcInstant.Value.Ticks >= item.Evidence.Scope.Interval.End)) return null;
+            return facts.Where(f => overlap.Kind == IntervalKind.Calendar ? f.CalendarDate!.Value.DayNumber >= overlap.Start && f.CalendarDate.Value.DayNumber < overlap.End :
+                f.UtcInstant!.Value.Ticks >= overlap.Start && f.UtcInstant.Value.Ticks < overlap.End)
+                .Select(f => (f.ObservationId, overlap.Kind == IntervalKind.Calendar ? (long)f.CalendarDate!.Value.DayNumber : f.UtcInstant!.Value.Ticks)).Order().ToArray();
+        }
+        var left = InOverlap(a); var right = InOverlap(b);
+        return left is null || right is null || !left.SequenceEqual(right) ? overlap : null;
     }
     public static void ValidateRequirement(FeatureCoverageRequirement requirement)
     {
@@ -54,8 +78,16 @@ public static class CoverageRules
         foreach (var report in reports)
         {
             report.Query.Scope.Validate();
+            if (report.Authorized && report.Status is not (CoverageStatus.Expired or CoverageStatus.Conflicting) && (report.Query.AsOfUtc.Kind != DateTimeKind.Utc || report.Query.AsOfUtc.Ticks % 10 != 0 ||
+                report.Query.Scope.Interval.Kind == IntervalKind.Calendar && (report.Query.Scope.Interval.CalendarBasis != "UTC-calendar" ||
+                    report.Query.Scope.Interval.EndDate > DateOnly.FromDateTime(report.Query.AsOfUtc)) ||
+                report.Query.Scope.Interval.Kind == IntervalKind.Utc && report.Query.Scope.Interval.EndUtc > report.Query.AsOfUtc))
+                throw new ArgumentException("Coverage window must precede its explicit UTC prediction boundary.");
             if (requirement.ParticipantRequired && report.Query.Scope.ParticipantId is null ||
-                requirement.LookbackDays is { } days && (report.Query.Scope.Interval.Kind != IntervalKind.Calendar || report.Query.Scope.Interval.End - report.Query.Scope.Interval.Start != days))
+                requirement.LookbackDays is { } days && (report.Query.AsOfUtc.Kind != DateTimeKind.Utc ||
+                    report.Query.Scope.Interval.Kind != IntervalKind.Calendar || report.Query.Scope.Interval.CalendarBasis != "UTC-calendar" ||
+                    report.Query.Scope.Interval.EndDate != DateOnly.FromDateTime(report.Query.AsOfUtc) ||
+                    report.Query.Scope.Interval.StartDate != DateOnly.FromDateTime(report.Query.AsOfUtc).AddDays(-days)))
                 throw new ArgumentException("Coverage report does not satisfy declared participant/window dimensions.");
             var first = reports[0].Query;
             if (report.Query.AsOfUtc != first.AsOfUtc || report.Query.Mode != first.Mode || report.Query.ReconstructionUtc != first.ReconstructionUtc ||

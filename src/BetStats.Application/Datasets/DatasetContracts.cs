@@ -52,7 +52,13 @@ public sealed record DatasetManifest(int ManifestVersion, int SerializerVersion,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DatasetGovernance? Governance = null);
 public sealed record DatasetSnapshot(Guid Id, string ManifestHash, DateTime BuiltAtUtc, DateTime RecordedAtUtc, DatasetManifest Manifest);
 public sealed record DatasetVerification(Guid SnapshotId, bool ArtifactIntegrity, bool EvidenceComplete,
-    bool CurrentlyAuthorized, bool FeaturesReproducible, IReadOnlyList<string> Reasons);
+    bool CurrentlyAuthorized, bool FeaturesReproducible, IReadOnlyList<string> Reasons,
+    bool? RawAvailable = null, bool? RawHashVerified = null)
+{
+    public int ContractVersion => 2;
+    public bool FrozenMetadataComplete => EvidenceComplete;
+    public bool CurrentUseAuthorized => CurrentlyAuthorized;
+}
 public sealed record DatasetDifference(string Path, string? Left, string? Right);
 public sealed record DatasetComparison(Guid LeftId, Guid RightId, int Offset, int Total, IReadOnlyList<DatasetDifference> Differences);
 public interface IDatasets
@@ -60,6 +66,7 @@ public interface IDatasets
     Task<DatasetBuildResult> BuildAsync(DatasetBuildRequest request, CancellationToken token = default);
     Task<DatasetSnapshot> InspectAsync(Guid id, CancellationToken token = default);
     Task<DatasetVerification> VerifyAsync(Guid id, CancellationToken token = default);
+    Task<DatasetVerification> VerifyDeepAsync(Guid id, CancellationToken token = default);
     Task<DatasetComparison> CompareAsync(Guid left, Guid right, int offset, int limit, CancellationToken token = default);
     Task MarkInterruptedAsync(Guid attemptId, string actor, string reason, CancellationToken token = default);
 }
