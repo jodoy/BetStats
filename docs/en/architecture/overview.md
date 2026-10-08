@@ -35,6 +35,15 @@ See [ADR 0015](../../adr/0015-canonical-identity-and-temporal-observations.md) a
 the [model, temporal contract and ER diagram](../data/canonical-sports-model.md).
 
 ## Pipeline
+
+BS-004 adds source governance in Domain, policy evaluation/provider contracts and
+in-process request budgets in Application, and governance persistence in
+Infrastructure. SourcePolicy approval remains an internal review, distinct from
+verified contractual rights. Historical identity reads now use trusted database
+availability; observation reads have bounded keyset pages. No provider HTTP client
+or endpoint is added. See [ADR 0016](../../adr/0016-source-governance-and-bounded-history.md)
+and [governance and temporal limits](../data/source-governance.md).
+
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`
 
 ## Hard invariants

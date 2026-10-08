@@ -41,8 +41,10 @@ Unique identity/version rejects stale concurrent writers; callers must reload an
 explicitly reconsider evidence after a conflict. The highest version is the one
 current decision; no independent active flags can disagree.
 
-`IIdentityResolutionHistory.ReadLatestAsOfAsync` filters decision time by the UTC
-cutoff before selecting the highest eligible version. `AppendAsync` saves a new
+`IIdentityResolutionHistory.ReadLatestAsOfAsync` filters both decision time and
+database-generated RecordedAtUtc by the UTC cutoff before selecting the highest
+eligible version (BS-004). Existing decisions conservatively receive migration-time
+availability. `AppendAsync` saves a new
 decision; competing writes surface as a persistence uniqueness failure. This port
 does not match names or apply decisions to past observations.
 
@@ -96,7 +98,9 @@ deterministically. Kind/availability, identity/availability and each typed canon
 target/availability have supporting indexes. Results contain all eligible history,
 including superseded rows, rather than a synthesized current winner. A canonical
 filter excludes unresolved observations; source/identity filters can retrieve them.
-There is no pagination yet; consumers should constrain kind/source/identity/target.
+BS-004 adds `ReadPageAsOfAsync`, bounded keyset pages and validated query-bound
+cursors. The default configurable cap is 200; the legacy list API throws on overflow.
+See [paging consistency and trusted identity availability](source-governance.md).
 
 Example: a value obtained January 1 is visible January 2; its January 3 correction
 is excluded from January 2 even if source publication/event times say December 31.

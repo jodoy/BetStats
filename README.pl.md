@@ -2,9 +2,9 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-003 — model kanoniczny i historia obserwacji.
-> PostgreSQL przechowuje metadane ingestion, encje wielu sportów, jawne decyzje
-> tożsamości i niezmienne obserwacje. API liveness, placeholder Web i host Workera
+> **Status:** BS-004 — governance źródeł i kontrakty providerów.
+> PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
+> audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
 > i lokalizacja pozostają planowane.
 
@@ -37,7 +37,7 @@ kompilacje, analyzery SDK i traktowanie ostrzeżeń jako błędów.
 ## Struktura i testy
 
 - `src/BetStats.Domain`: encje kanoniczne, reguły tożsamości i obserwacji; brak zależności projektowych.
-- `src/BetStats.Application`: kontrakty historycznych zapytań; zależy od Domain.
+- `src/BetStats.Application`: ocena praw, kontrakty/budżety providerów i historyczne zapytania; zależy od Domain.
 - `src/BetStats.Infrastructure`: PostgreSQL, DbContext, mapowania i migracje; zależy od Application i Domain.
 - `src/BetStats.Api` i `src/BetStats.Worker`: composition roots, mogą składać Application, Infrastructure i Domain.
 - `src/BetStats.Web`: prezentacja; może zależeć od Application i Domain, bez Infrastructure i persystencji.
@@ -122,6 +122,21 @@ i UUID. Korekty tworzą nowe rekordy; późniejsze decyzje tożsamości nie zmie
 wcześniejszych obserwacji. Bieżące encje kanoniczne nie są źródłem historii.
 Zobacz [model danych, ER i ograniczenia](docs/pl/data/canonical-sports-model.md)
 oraz [ADR 0015](docs/adr/0015-canonical-identity-and-temporal-observations.md).
+
+BS-004 dodaje schemat `governance`: niezmienne wersje SourcePolicy, osobne
+uprawnienia dla celów oraz audyt zatwierdzeń/cofnięć. Unknown odmawia; wewnętrzne
+Approved nie dowodzi praw licencyjnych. Kontrakty providerów i executor sprawdzają
+politykę przed wykonaniem; brak HTTP clients i realnego ingestion. Budżet procesu
+ogranicza minutę/dobę/concurrency, timeout i Retry-After, bez automatycznych retries
+i koordynacji wielu instancji.
+
+Historia tożsamości wymaga teraz czasu DB `RecordedAtUtc` oraz czasu decyzji.
+Stare rekordy BS-003 otrzymują dostępność z czasu migracji, więc wcześniejsze cutoffy
+je wykluczają. Obserwacje mają paginację keyset, domyślnie do 200 rekordów
+(`History__MaximumPageSize`, 1–1000). Stary odczyt listy zgłasza błąd przy przekroczeniu
+limitu; dla większych wyników użyj `ReadPageAsOfAsync`.
+Zobacz [governance, kontrakty i ograniczenia](docs/pl/data/source-governance.md)
+oraz [ADR 0016](docs/adr/0016-source-governance-and-bounded-history.md).
 
 ## Dokumentacja
 

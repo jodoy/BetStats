@@ -23,4 +23,5 @@ public sealed record ObservationQuery
 public interface IObservationHistory
 {
     Task<IReadOnlyList<Observation>> ReadAsOfAsync(ObservationQuery query, CancellationToken cancellationToken = default);
+    Task<ObservationPage> ReadPageAsOfAsync(ObservationQuery query, int pageSize, ObservationCursor? cursor = null, CancellationToken cancellationToken = default);
 }

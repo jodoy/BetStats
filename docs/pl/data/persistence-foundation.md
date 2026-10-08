@@ -10,6 +10,8 @@ Ta strona opisuje ingestion z BS-002. BS-003 dodaje oddzielne schematy canonical
 i provenance: [model oraz kontrakt historii](canonical-sports-model.md).
 Opisane niżej ograniczenia ochrony RAW nadal dotyczą metadanych ingestion;
 nowe tabele provenance mają dodatkowo triggery niezmienności w bazie.
+BS-004 dodaje [polityki, audyt i dostępność tożsamości](source-governance.md)
+przez migrację addytywną; definicje ingestion pozostają zachowane.
 
 ## Schemat i provenance
 

@@ -2,9 +2,9 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-003 canonical sports and temporal observation foundation.
-> PostgreSQL stores ingestion metadata, generic multi-sport entities, explicit
-> identity decisions and immutable observations. API liveness, Web placeholder
+> **Status:** BS-004 source governance and provider contract foundation.
+> PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
+> audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
 > authentication and localization remain planned.
 
@@ -86,8 +86,8 @@ docs/
 
 | Project | Responsibility | Allowed project dependencies |
 | --- | --- | --- |
-| Domain | Canonical entities, identity and observation invariants | None |
-| Application | Historical observation and identity decision query contracts | Domain |
+| Domain | Canonical entities, source policies, identity and observation invariants | None |
+| Application | Fail-closed policy evaluation, provider contracts/budgets and historical query contracts | Domain |
 | Infrastructure | PostgreSQL metadata, canonical/provenance mappings, adapters and migrations | Application, Domain |
 | Api | ASP.NET Core composition root; `/health/live` | Application, Infrastructure, Domain |
 | Worker | Generic Host composition root | Application, Infrastructure, Domain |
@@ -186,6 +186,21 @@ do not remap earlier observations. Current canonical tables are not historical e
 See the [data model and ER diagram](docs/en/data/canonical-sports-model.md),
 [query examples and limitations](docs/en/data/canonical-sports-model.md#historical-query-contract)
 and [ADR 0015](docs/adr/0015-canonical-identity-and-temporal-observations.md).
+
+BS-004 adds the `governance` schema: immutable source-policy versions, independent
+purpose permissions and approval/revocation audit. Unknown permissions deny access;
+internal approval is not proof of provider licensing rights. Provider contracts and
+an authorization executor exist, with no HTTP clients or real ingestion. Shared
+in-process budgets enforce minute/day/concurrency limits, timeout and Retry-After;
+they do not coordinate multiple instances. No automatic retries are made.
+
+Identity history now requires database-generated `RecordedAtUtc` as well as decision
+event time. Old BS-003 decisions receive conservative migration-time availability,
+so pre-migration cutoffs exclude them. Observation history supports keyset pagination
+with a default cap of 200 (`History__MaximumPageSize`, 1–1000). The existing list
+query throws on overflow; callers should use `ReadPageAsOfAsync` for larger results.
+See [governance, provider contracts and limitations](docs/en/data/source-governance.md)
+and [ADR 0016](docs/adr/0016-source-governance-and-bounded-history.md).
 
 ## Documentation
 
