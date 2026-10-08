@@ -339,15 +339,16 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         var run = new IngestionRun { Id = Guid.NewGuid(), DataSourceId = source.Id, CreatedAtUtc = Time };
         var raw = new RawPayload { Id = Guid.NewGuid(), DataSourceId = source.Id, IngestionRunId = run.Id, RetrievedAtUtc = Time, CreatedAtUtc = Time,
             ContentHashSha256 = new string('c', 64), ContentType = "application/json", StorageKey = "synthetic/upgrade" };
-        context.AddRange(source, run, raw);
+        context.AddRange(source, run);
         await context.SaveChangesAsync(timeout.Token);
+        await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO ingestion.\"RawPayloads\" (\"Id\", \"DataSourceId\", \"IngestionRunId\", \"RetrievedAtUtc\", \"CreatedAtUtc\", \"ContentHashSha256\", \"ContentType\", \"StorageKey\") VALUES ({raw.Id}, {source.Id}, {run.Id}, {Time}, {Time}, {raw.ContentHashSha256}, {raw.ContentType}, {raw.StorageKey})", timeout.Token);
         await context.Database.MigrateAsync(timeout.Token);
         context.ChangeTracker.Clear();
         Assert.Equal(source.DisplayName, (await context.DataSources.SingleAsync(timeout.Token)).DisplayName);
         Assert.Equal(run.Id, (await context.IngestionRuns.SingleAsync(timeout.Token)).Id);
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.SingleAsync(timeout.Token)).StorageKey);
         Assert.Equal(4, await context.Sports.CountAsync(timeout.Token));
-        Assert.Equal(4, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(5, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 }

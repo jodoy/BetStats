@@ -13,6 +13,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     public DbSet<DataSource> DataSources => Set<DataSource>();
     public DbSet<IngestionRun> IngestionRuns => Set<IngestionRun>();
     public DbSet<RawPayload> RawPayloads => Set<RawPayload>();
+    public DbSet<IngestionAuditEvent> IngestionAuditEvents => Set<IngestionAuditEvent>();
+    public DbSet<IngestionPublication> IngestionPublications => Set<IngestionPublication>();
     public DbSet<Sport> Sports => Set<Sport>();
     public DbSet<Competition> Competitions => Set<Competition>();
     public DbSet<Season> Seasons => Set<Season>();
@@ -86,6 +88,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         CanonicalModelConfiguration.Configure(modelBuilder);
         ProvenanceModelConfiguration.Configure(modelBuilder);
         GovernanceModelConfiguration.Configure(modelBuilder);
+        IngestionModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -108,6 +111,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
             {
                 throw new InvalidOperationException("RAW capture metadata is append-only; updates and deletes require an explicit retention process.");
             }
+            if (entry.Entity is IngestionAuditEvent or IngestionPublication && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Ingestion audit and publication receipts are append-only.");
             if (entry.Entity is ProviderIdentity or IdentityResolution or Observation && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Identity and observation history is append-only.");
             if (entry.Entity is SourcePolicy or PolicyAudit or PurposePermission && entry.State is EntityState.Modified or EntityState.Deleted)

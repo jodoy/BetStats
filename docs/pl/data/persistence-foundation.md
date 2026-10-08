@@ -12,6 +12,8 @@ BS-004.1 dodaje bazodanową ochronę RAW i projekt kontrolowanej retencji:
 [naprawy audytu](audit-remediation.md).
 BS-004 dodaje [polityki, audyt i dostępność tożsamości](source-governance.md)
 przez migrację addytywną; definicje ingestion pozostają zachowane.
+BS-005 dodaje czas/rozmiar RAW oraz audyt i receipts publikacji:
+[pierwsza ingestia piłkarska](first-football-ingestion.md).
 
 ## Schemat i provenance
 

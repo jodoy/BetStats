@@ -16,7 +16,7 @@ public sealed class PersistenceTests(PostgreSqlFixture fixture) : IClassFixture<
     public async Task Fresh_database_is_migrated_and_has_no_pending_model_changes()
     {
         await using var context = fixture.CreateContext();
-        Assert.Equal(new[] { "20261007234734_InitialPersistence", "20261008001440_CanonicalSportsAndTemporalObservations", "20261008005300_SourceGovernanceAndTrustedHistory", "20261008014627_AuditRemediation" },
+        Assert.Equal(new[] { "20261007234734_InitialPersistence", "20261008001440_CanonicalSportsAndTemporalObservations", "20261008005300_SourceGovernanceAndTrustedHistory", "20261008014627_AuditRemediation", "20261008083514_FirstFootballIngestion" },
             await context.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
         Assert.False(context.Database.HasPendingModelChanges());
@@ -36,7 +36,7 @@ public sealed class PersistenceTests(PostgreSqlFixture fixture) : IClassFixture<
         {
             while (await reader.ReadAsync()) tables.Add(reader.GetString(0));
         }
-        Assert.Equal(new[] { "DataSources", "IngestionRuns", "RawPayloads" }, tables);
+        Assert.Equal(new[] { "DataSources", "IngestionAuditEvents", "IngestionPublications", "IngestionRuns", "RawPayloads" }, tables);
 
         command.CommandText = """
             SELECT c.contype::text, c.confdeltype::text
@@ -48,8 +48,8 @@ public sealed class PersistenceTests(PostgreSqlFixture fixture) : IClassFixture<
         {
             while (await reader.ReadAsync()) constraints.Add((reader.GetString(0), reader.GetString(1)));
         }
-        Assert.Equal(3, constraints.Count(constraint => constraint.Kind == "p"));
-        Assert.Equal(3, constraints.Count(constraint => constraint.Kind == "f"));
+        Assert.Equal(5, constraints.Count(constraint => constraint.Kind == "p"));
+        Assert.Equal(8, constraints.Count(constraint => constraint.Kind == "f"));
         Assert.All(constraints.Where(constraint => constraint.Kind == "f"), constraint => Assert.Equal("r", constraint.DeleteAction));
         Assert.True(constraints.Count(constraint => constraint.Kind == "c") >= 7);
         Assert.Contains(constraints, constraint => constraint.Kind == "u");

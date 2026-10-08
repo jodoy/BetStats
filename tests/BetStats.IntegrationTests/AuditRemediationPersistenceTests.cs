@@ -150,7 +150,8 @@ public sealed class AuditRemediationPersistenceTests(PostgreSqlFixture fixture) 
         await using var context = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(container.GetConnectionString()).Options);
         await context.GetService<IMigrator>().MigrateAsync("20261008005300_SourceGovernanceAndTrustedHistory", timeout.Token);
         var source = Source(); var identity = Identity(source); var raw = Raw(source);
-        context.AddRange(source, identity, raw); await context.SaveChangesAsync(timeout.Token);
+        context.AddRange(source, identity); await context.SaveChangesAsync(timeout.Token);
+        await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO ingestion.\"RawPayloads\" (\"Id\", \"DataSourceId\", \"RetrievedAtUtc\", \"CreatedAtUtc\", \"ContentHashSha256\", \"ContentType\", \"StorageKey\") VALUES ({raw.Id}, {source.Id}, {raw.RetrievedAtUtc}, {raw.CreatedAtUtc}, {raw.ContentHashSha256}, {raw.ContentType}, {raw.StorageKey})", timeout.Token);
         var id = Guid.NewGuid(); var derived = raw.CreatedAtUtc;
         await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO provenance.\"Observations\" (\"Id\", \"ProviderIdentityId\", \"DataSourceId\", \"EntityKind\", \"Type\", \"TextValue\", \"Version\", \"RetrievedAtUtc\", \"AvailableAtUtc\", \"CreatedAtUtc\", \"RawPayloadId\") VALUES ({id}, {identity.Id}, {source.Id}, 'Participant', 'DisplayName', 'Legacy', 1, {Time}, {derived}, {derived}, {raw.Id})", timeout.Token);
         var correctionId = Guid.NewGuid();
@@ -164,6 +165,6 @@ public sealed class AuditRemediationPersistenceTests(PostgreSqlFixture fixture) 
         Assert.Empty(await new ObservationHistory(context).ReadAsOfAsync(new(CanonicalEntityKind.Participant, before.AddTicks(-10))));
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.AsNoTracking().SingleAsync(timeout.Token)).StorageKey);
         Assert.False(context.Database.HasPendingModelChanges()); Assert.Empty(await context.Database.GetPendingMigrationsAsync(timeout.Token));
-        Assert.Equal(4, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(5, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
     }
 }

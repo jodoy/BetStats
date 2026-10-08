@@ -35,6 +35,8 @@ data/local/
 data/raw/
 data/provider/
 data/private/
+*.raw
+*.pending
 
 # Python / ML local artifacts
 .venv/

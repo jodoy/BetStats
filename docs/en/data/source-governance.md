@@ -4,6 +4,9 @@
 milestone. No provider permission, real dataset, client, credential or license is
 included. This foundation checks recorded internal decisions; it cannot establish
 contractual rights by itself.
+BS-005 uses this foundation for synthetic ingestion only; no real candidate policy
+is approved. See [candidate assessment](football-data-assessment.md) and
+[stage-specific gates](first-football-ingestion.md).
 
 ## Four distinct questions
 

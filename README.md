@@ -2,7 +2,7 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-004.1 audit remediation and trusted observation foundation.
+> **Status:** BS-005 synthetic football ingestion vertical slice; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
@@ -208,6 +208,23 @@ malformed adapter response validation and database RAW immutability. See
 [audit remediation, migration and privileged retention](docs/en/data/audit-remediation.md)
 and [ADR 0017](docs/adr/0017-audit-remediation-and-trusted-observations.md).
 Recording is INSERT time, not a commit-time snapshot guarantee.
+
+BS-005 adds a bounded CSV fixture adapter, exact-byte filesystem RAW storage,
+database receipt time, structured ingestion audit, reviewed identity handling,
+EventDate observations and batch/row publication receipts. Football-Data.co.uk is
+an assessed candidate with restrictive published use conditions, not an approved
+live source. No HTTP transport, provider download or startup ingestion is added.
+See [synthetic demo, recovery and known limits](docs/en/data/first-football-ingestion.md),
+[candidate assessment](docs/en/data/football-data-assessment.md) and
+[ADR 0018](docs/adr/0018-first-football-ingestion.md).
+After explicitly applying migrations to a dedicated local database:
+
+```sh
+dotnet run --project src/BetStats.Worker --configuration Release -- --synthetic-demo --approve-synthetic
+```
+
+The explicit approval concerns fictional fixtures only. RAW storage must be outside
+the repository; filesystem/PostgreSQL writes are not a cross-system transaction.
 
 ## Documentation
 

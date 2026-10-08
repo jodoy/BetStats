@@ -16,6 +16,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
     // disposable container, with a random host port and no shared volume.
     public BetStatsDbContext CreateContext() => new(new DbContextOptionsBuilder<BetStatsDbContext>()
         .UseNpgsql(container.GetConnectionString()).Options);
+    public string GetConnectionString() => container.GetConnectionString();
 
     public async Task InitializeAsync()
     {

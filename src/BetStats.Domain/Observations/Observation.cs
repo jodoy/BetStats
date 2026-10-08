@@ -4,7 +4,7 @@ using BetStats.Domain.Sports;
 
 namespace BetStats.Domain.Observations;
 
-public enum ObservationType { DisplayName, ScheduledStart, EventStatus }
+public enum ObservationType { DisplayName, ScheduledStart, EventStatus, EventDate }
 
 public sealed class Observation
 {
@@ -13,7 +13,7 @@ public sealed class Observation
         DateTime retrievedAtUtc, DateTime availableAtUtc, DateTime createdAtUtc,
         string? textValue = null, DateTime? timestampValueUtc = null, SportingEventStatus? statusValue = null,
         DateTime? sourceEventTimeUtc = null, DateTime? sourcePublishedAtUtc = null, Guid? rawPayloadId = null,
-        Observation? corrects = null)
+        Observation? corrects = null, DateOnly? dateValue = null)
     {
         ArgumentNullException.ThrowIfNull(identity);
         Id = Require.Id(id); ProviderIdentityId = identity.Id; DataSourceId = identity.DataSourceId; EntityKind = identity.EntityKind;
@@ -23,13 +23,15 @@ public sealed class Observation
         Require.That(availableAtUtc >= retrievedAtUtc && createdAtUtc >= retrievedAtUtc, "Availability and creation cannot precede retrieval.");
         SourceEventTimeUtc = Require.Utc(sourceEventTimeUtc); SourcePublishedAtUtc = Require.Utc(sourcePublishedAtUtc);
         TimestampValueUtc = Require.Utc(timestampValueUtc);
+        DateValue = dateValue;
         StatusValue = statusValue is { } status ? Require.Defined(status) : null;
         TextValue = textValue is null ? null : Require.Text(textValue, 200);
         Require.That(type switch
         {
-            ObservationType.DisplayName => textValue is not null && timestampValueUtc is null && statusValue is null && EntityKind != CanonicalEntityKind.SportingEvent,
-            ObservationType.ScheduledStart => textValue is null && timestampValueUtc is not null && statusValue is null && EntityKind == CanonicalEntityKind.SportingEvent,
-            ObservationType.EventStatus => textValue is null && timestampValueUtc is null && statusValue is not null && EntityKind == CanonicalEntityKind.SportingEvent,
+            ObservationType.DisplayName => textValue is not null && timestampValueUtc is null && statusValue is null && dateValue is null && EntityKind != CanonicalEntityKind.SportingEvent,
+            ObservationType.ScheduledStart => textValue is null && timestampValueUtc is not null && statusValue is null && dateValue is null && EntityKind == CanonicalEntityKind.SportingEvent,
+            ObservationType.EventStatus => textValue is null && timestampValueUtc is null && statusValue is not null && dateValue is null && EntityKind == CanonicalEntityKind.SportingEvent,
+            ObservationType.EventDate => textValue is null && timestampValueUtc is null && statusValue is null && dateValue is not null && EntityKind == CanonicalEntityKind.SportingEvent,
             _ => false
         }, "Observation value/type/entity kind is inconsistent.");
         Require.That(corrects is null || (corrects.ProviderIdentityId == identity.Id && corrects.Type == type &&
@@ -51,6 +53,7 @@ public sealed class Observation
     public string? TextValue { get; private set; }
     public DateTime? TimestampValueUtc { get; private set; }
     public SportingEventStatus? StatusValue { get; private set; }
+    public DateOnly? DateValue { get; private set; }
     public DateTime? SourceEventTimeUtc { get; private set; }
     public DateTime? SourcePublishedAtUtc { get; private set; }
     public DateTime RetrievedAtUtc { get; private set; }
