@@ -23,6 +23,7 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
     IAnalyticalQualityGate gate, ISourcePolicyEvaluator policies, ISourceOperationalStatus sources, IHistoricalCoverage? coverage = null) : IDatasets
 {
     private sealed class Denied(string code) : Exception(code);
+    internal static bool IsPermissionDenial(Exception error) => error is Denied or UnauthorizedAccessException;
     private static IEnumerable<DataPurpose> Purposes(DatasetDefinition d) => new[] { d.Purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention }.Distinct();
     private static object FrozenPolicy(SourcePolicy policy) => new { policy.Id, policy.DataSourceId, policy.Version, policy.EffectiveFromUtc, policy.EffectiveToUtc,
         policy.TermsReference, policy.EvidenceReference, policy.RecordedAtUtc, Permissions = policy.Permissions.OrderBy(p => p.Purpose).ToArray() };

@@ -2,10 +2,10 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-010 — niezależne pokrycie fikcyjnych wyników, trwałe operacje i recovery v3 oraz jawny koniec wydarzenia; realny provider pozostaje wyłączony.
+> **Status:** BS-011 — niezmienne symulacje historyczne, syntetyczne baseline'y, metryki i jawne recovery backtestów; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
-> pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
+> pozostają minimalne. Realne providery, wytrenowane predykcje, uwierzytelnianie
 > i lokalizacja pozostają planowane.
 
 ## Lokalne API
@@ -23,9 +23,14 @@ Dokumentacja działa tylko w Development. Publiczne odczyty: liveness i własny 
 
 ## Granica produktu
 
+[BS-011: backtesting i polecenia operatora](docs/pl/data/historical-backtesting.md)
+opisuje syntetyczne predykcje i niezmienne raporty. Brak dowodów daje wykluczenia
+i null zamiast zerowych metryk; nie twierdzimy, że zwalidowano realny model.
+[ADR 0025](docs/adr/0025-historical-backtesting.md).
+
 [BS-010: pokrycie wyników, operacje v3, recovery i koniec wydarzenia](docs/pl/data/result-coverage-operations-event-end.md)
 opisuje jawne polecenia Development i migrację. Kompletność wymaga niezależnego
-dowodu; ewaluacja pozostaje kontraktem, bez treningu i scoringu.
+dowodu; BS-011 korzysta z tego kontraktu eligibility bez treningu modeli.
 [ADR 0024](docs/adr/0024-result-coverage-operations-and-event-end.md).
 
 [BS-009: wyniki, etykiety, zbiory v3 i fikcyjne API](docs/pl/data/football-results-outcomes.md)
