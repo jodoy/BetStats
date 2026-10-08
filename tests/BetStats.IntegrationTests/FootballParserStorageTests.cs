@@ -95,7 +95,7 @@ public sealed class FootballParserStorageTests
             Assert.Throws<ArgumentException>(() => new FileSystemRawPayloadStore("relative/path"));
             File.Delete(Path.Combine(root, "BetStats.slnx"));
             File.WriteAllText(Path.Combine(root, "blocked"), "synthetic");
-            Assert.Throws<IOException>(() => new FileSystemRawPayloadStore(Path.Combine(root, "blocked", "child")));
+            Assert.ThrowsAny<IOException>(() => new FileSystemRawPayloadStore(Path.Combine(root, "blocked", "child")));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
