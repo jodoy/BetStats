@@ -2,13 +2,18 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-005 — syntetyczna ingestia piłkarska; realny provider pozostaje wyłączony.
+> **Status:** BS-006 — wersjonowana jakość, jawny przegląd tożsamości i reconciliation RAW; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
 > i lokalizacja pozostają planowane.
 
 ## Granica produktu
+
+[Workflow operatora i eligibility BS-006](docs/pl/data/quality-identity-reconciliation.md)
+opisuje polecenia Workera, raporty, chroniony audyt i oddzielne tryby
+HistoricalAsKnown/RetrospectiveReconstruction. [ADR 0019](docs/adr/0019-quality-review-reconciliation.md).
+Operator jest deklarowany ręcznie; nie ma publicznego API administracyjnego.
 
 BetStats **nie jest bukmacherem**. Nie przyjmuje prawdziwych stawek, depozytów ani wypłat i nie wykonuje zakładów. Prediction Playground korzysta wyłącznie z wirtualnych kuponów do analizy, edukacji i zabawy.
 

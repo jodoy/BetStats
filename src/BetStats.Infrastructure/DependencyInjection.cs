@@ -5,6 +5,8 @@ using BetStats.Application.Observations;
 using BetStats.Application.Ingestion;
 using BetStats.Infrastructure.Ingestion;
 using BetStats.Infrastructure.Persistence;
+using BetStats.Application.Quality;
+using BetStats.Infrastructure.Quality;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +26,10 @@ public static class DependencyInjection
         services.AddScoped<AuthorizedProviderExecutor>();
         services.AddScoped<IFootballIngestionPersistence, FootballIngestionPersistence>();
         services.AddScoped<FootballIngestion>();
+        services.AddScoped<IIdentityReview, IdentityReview>();
+        services.AddScoped<IDataReconciliation, DataReconciliation>();
+        services.AddScoped<IAnalyticalQualityGate, AnalyticalQualityGate>();
+        services.AddScoped<IQualityReports, QualityReports>();
         services.AddSingleton<IFootballMetadataParser, FootballDataCsvParser>();
         services.AddSingleton<IRawPayloadStore>(_ => new FileSystemRawPayloadStore(configuration["Ingestion:RawStoragePath"]
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BetStats", "raw")));

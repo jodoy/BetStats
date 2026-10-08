@@ -1,7 +1,5 @@
 using System.Data;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using BetStats.Application.Governance;
 using BetStats.Application.Ingestion;
 using BetStats.Application.Providers;
@@ -12,6 +10,9 @@ using BetStats.Domain.Sports;
 using BetStats.Infrastructure.Persistence;
 using BetStats.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using BetStats.Application.Quality;
+using BetStats.Domain.Quality;
+using BetStats.Infrastructure.Quality;
 
 namespace BetStats.Infrastructure.Ingestion;
 
@@ -79,7 +80,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             storedRaw.ContentHashSha256 != raw.Object.Hash || (storedRaw.ByteLength is { } length && length != raw.Object.Length) ||
             storedRaw.RetrievedAtUtc != raw.RetrievedAtUtc || storedRaw.CreatedAtUtc != raw.CreatedAtUtc || storedRaw.RecordedAtUtc != raw.RecordedAtUtc)
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
-        var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { scope.CompetitionReference, scope.SeasonReference, raw.Object.Hash, FootballDataCsvParser.Version }))));
+        var key = FootballPublicationKeys.Batch(scope, raw.Object.Hash);
         var previous = await context.IngestionPublications.SingleOrDefaultAsync(r => r.DataSourceId == attempt.DataSourceId && r.Key == key, cancellationToken);
         issues = parsed.Issues.Select(i => $"{i.Row}:{i.Code}").ToArray();
         if (previous is not null)
@@ -89,9 +90,22 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         }
         var now = await Now(cancellationToken); var unresolved = new HashSet<Guid>(); var accepted = 0;
         var rowIssues = new List<string>(issues);
+        foreach (var issue in QualityPersistence.ExpandIssues(parsed))
+            QualityPersistence.Record(context, attempt.AttemptId, storedRaw, attempt.RunId, issue.Row, "source-row:" + issue.Row, null,
+                lastPolicy, now, [FootballQualityRules.ParseIssue(issue.Code)]);
         foreach (var record in parsed.Records)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var assessment = await QualityPersistence.Assess(context, storedRaw, record, now, cancellationToken);
+            QualityPersistence.Record(context, attempt.AttemptId, storedRaw, attempt.RunId, record.Row, record.MatchReference, assessment.Identity,
+                lastPolicy, now, assessment.Issues);
+            var blocking = assessment.Issues.FirstOrDefault(i => i.BlocksEligibility && i.Classification != QualityClassification.IdentityAmbiguous);
+            // Legacy identity mismatches still fail the publication transaction.
+            if (blocking is not null && blocking.Classification is not QualityClassification.CanonicalMismatch)
+            {
+                rowIssues.Add($"{record.Row}:{blocking.ReasonCode}");
+                continue;
+            }
             var competitionAnchor = await Anchor(CanonicalEntityKind.Competition, "provider:competition:" + record.CompetitionReference);
             var seasonAnchor = await Anchor(CanonicalEntityKind.Season, FootballDataCsvParser.SeasonReference(record.CompetitionReference, record.SeasonReference));
             var homeAnchor = await Anchor(CanonicalEntityKind.Participant, record.HomeReference);
@@ -134,8 +148,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             else { accepted++; unresolved.Remove(eventAnchor.Id); }
             if (sportingEvent is not null)
             {
-                var rowKey = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new[] { key, "row", record.MatchReference,
-                    competition!.Id.ToString(), season!.Id.ToString(), home!.Id.ToString(), away!.Id.ToString(), sportingEvent.Id.ToString() }))));
+                var rowKey = FootballPublicationKeys.Row(key, record.MatchReference, competition!.Id, season!.Id, home!.Id, away!.Id, sportingEvent.Id);
                 if (await context.IngestionPublications.AnyAsync(r => r.DataSourceId == attempt.DataSourceId && r.Key == rowKey, cancellationToken)) continue;
                 context.Add(new IngestionPublication { Id = Guid.NewGuid(), DataSourceId = attempt.DataSourceId, Key = rowKey, RawPayloadId = raw.Id, RunId = attempt.RunId!.Value, AcceptedRecords = 1 });
             }
@@ -146,7 +159,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         issues = rowIssues.ToArray();
         await Save(cancellationToken);
         var outcome = issues.Length == 0 && unresolved.Count == 0 ? ImportOutcome.Succeeded : ImportOutcome.Partial;
-        if (outcome == ImportOutcome.Succeeded)
+        if (outcome == ImportOutcome.Succeeded && parsed.CompletePayload)
             context.Add(new IngestionPublication { Id = Guid.NewGuid(), DataSourceId = attempt.DataSourceId, Key = key, RawPayloadId = raw.Id, RunId = attempt.RunId!.Value, AcceptedRecords = accepted, IsBatch = true });
         await Save(cancellationToken); await transaction.CommitAsync(cancellationToken);
         return attempt with { Outcome = outcome, AcceptedRecords = accepted, UnresolvedIdentities = unresolved.Count, ErrorCode = outcome == ImportOutcome.Partial ? "validation_or_identity_incomplete" : null,

@@ -2,6 +2,11 @@
 
 BetStats is a modular monolith.
 
+BS-006 adds provider-neutral quality evidence in Domain, versioned football rules
+and operator ports in Application, and persistence adapters in Infrastructure.
+See [ADR 0019](../../adr/0019-quality-review-reconciliation.md) and
+[operator/historical contracts](../data/quality-identity-reconciliation.md).
+
 ## Engineering dependency baseline
 
 Domain has no project dependencies. Application depends on Domain.
