@@ -2,13 +2,19 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-005 synthetic football ingestion vertical slice; live provider access disabled.
+> **Status:** BS-006 versioned quality assessments, explicit identity review and deterministic RAW reconciliation; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
 > authentication and localization remain planned.
 
 ## Product boundary
+
+[BS-006 operator workflow and historical eligibility](docs/en/data/quality-identity-reconciliation.md)
+documents explicit Worker commands, bounded reports, immutable quality/maintenance
+audit and HistoricalAsKnown versus RetrospectiveReconstruction. See
+[ADR 0019](docs/adr/0019-quality-review-reconciliation.md). Operator identifiers are
+manually supplied claims; administrative HTTP endpoints are not exposed.
 
 BetStats is **not a bookmaker**. It does not accept real-money stakes, deposits or withdrawals and does not execute bets. The Prediction Playground uses virtual coupons for analytics, education and entertainment.
 

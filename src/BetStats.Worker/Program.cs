@@ -4,13 +4,22 @@ using BetStats.Application.Providers;
 using BetStats.Infrastructure.Ingestion;
 using BetStats.Infrastructure.Persistence;
 using System.Text.Json;
+using BetStats.Infrastructure.Quality;
 
 var demo = args.Contains("--synthetic-demo", StringComparer.Ordinal);
 var approve = args.Contains("--approve-synthetic", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a is not ("--synthetic-demo" or "--approve-synthetic")).ToArray());
 builder.Services.AddPersistence(builder.Configuration);
 using var host = builder.Build();
-if (demo)
+if (builder.Configuration["Quality:Action"] is not null)
+{
+    if (demo) throw new ArgumentException("Choose one explicit Worker action.");
+    using var scope = host.Services.CreateScope();
+    using var cancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    Environment.ExitCode = await QualityOperatorCommand.RunAsync(scope.ServiceProvider, builder.Configuration, cancellation.Token);
+}
+else if (demo)
 {
     using var scope = host.Services.CreateScope();
     var services = scope.ServiceProvider;

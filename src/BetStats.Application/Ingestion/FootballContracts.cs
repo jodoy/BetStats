@@ -12,7 +12,7 @@ public sealed record FootballMatchRecord(int Row, string CompetitionReference, s
     DateOnly MatchDate, string HomeReference, string AwayReference, string HomeName, string AwayName,
     string MatchReference, bool CompositeMatchReference, SportingEventStatus? Status);
 public sealed record ImportIssue(int Row, string Code);
-public sealed record FootballParseResult(int ParsedCount, IReadOnlyList<FootballMatchRecord> Records, IReadOnlyList<ImportIssue> Issues);
+public sealed record FootballParseResult(int ParsedCount, IReadOnlyList<FootballMatchRecord> Records, IReadOnlyList<ImportIssue> Issues, bool CompletePayload = true);
 public interface IFootballMetadataParser
 {
     FootballParseResult Parse(ReadOnlyMemory<byte> bytes, FootballImportScope scope, CancellationToken cancellationToken = default);

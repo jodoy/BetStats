@@ -207,7 +207,9 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
             _ => "TRUNCATE provenance.\"Observations\""
         };
         var exception = await Assert.ThrowsAsync<PostgresException>(() => context.Database.ExecuteSqlRawAsync(sql));
-        Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
+        // The new RESTRICT quality FK may reject TRUNCATE before its trigger runs.
+        if (operation == 3) Assert.Contains(exception.SqlState, new[] { PostgresErrorCodes.CheckViolation, PostgresErrorCodes.FeatureNotSupported });
+        else Assert.Equal(PostgresErrorCodes.CheckViolation, exception.SqlState);
     });
 
     [Fact]
@@ -348,7 +350,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         Assert.Equal(run.Id, (await context.IngestionRuns.SingleAsync(timeout.Token)).Id);
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.SingleAsync(timeout.Token)).StorageKey);
         Assert.Equal(4, await context.Sports.CountAsync(timeout.Token));
-        Assert.Equal(5, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(6, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 }

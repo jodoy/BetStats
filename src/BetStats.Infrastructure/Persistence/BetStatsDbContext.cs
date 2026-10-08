@@ -2,6 +2,7 @@ using BetStats.Domain.Identity;
 using BetStats.Domain.Governance;
 using BetStats.Domain.Observations;
 using BetStats.Domain.Sports;
+using BetStats.Domain.Quality;
 using BetStats.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -11,6 +12,8 @@ namespace BetStats.Infrastructure.Persistence;
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
     public DbSet<DataSource> DataSources => Set<DataSource>();
+    public DbSet<QualityAssessment> QualityAssessments => Set<QualityAssessment>();
+    public DbSet<MaintenanceEvent> MaintenanceEvents => Set<MaintenanceEvent>();
     public DbSet<IngestionRun> IngestionRuns => Set<IngestionRun>();
     public DbSet<RawPayload> RawPayloads => Set<RawPayload>();
     public DbSet<IngestionAuditEvent> IngestionAuditEvents => Set<IngestionAuditEvent>();
@@ -89,6 +92,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         ProvenanceModelConfiguration.Configure(modelBuilder);
         GovernanceModelConfiguration.Configure(modelBuilder);
         IngestionModelConfiguration.Configure(modelBuilder);
+        QualityModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -107,6 +111,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is QualityAssessment or MaintenanceEvent && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Quality assessments and maintenance audit are append-only.");
             if (entry.Entity is RawPayload && entry.State is EntityState.Modified or EntityState.Deleted)
             {
                 throw new InvalidOperationException("RAW capture metadata is append-only; updates and deletes require an explicit retention process.");

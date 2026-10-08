@@ -2,6 +2,11 @@
 
 BetStats jest modular monolithem.
 
+BS-006 dodaje neutralne oceny jakości w Domain, wersjonowane reguły i porty operatora
+w Application oraz adaptery persystencji w Infrastructure.
+[ADR 0019](../../adr/0019-quality-review-reconciliation.md),
+[workflow i historia](../data/quality-identity-reconciliation.md).
+
 Domain nie zależy od innych projektów. Application zależy od Domain,
 Infrastructure od Application i Domain. API i Worker są composition roots.
 Web może zależeć od Application i Domain, bez Infrastructure i persystencji.
