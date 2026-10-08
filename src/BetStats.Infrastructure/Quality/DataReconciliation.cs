@@ -100,7 +100,7 @@ public sealed class DataReconciliation(BetStatsDbContext db, IRawPayloadStore st
                 try
                 {
                     report = await publication.PublishAsync(attempt, new(raw.Id, new(raw.StorageKey, raw.ContentHashSha256, raw.ByteLength.Value), raw.RetrievedAtUtc, raw.CreatedAtUtc, raw.RecordedAtUtc),
-                        request.Scope, new(selected.Count, selected, [], CompletePayload: false), token);
+                        request.Scope, new(selected.Count, selected, [], CompletePayload: false, ParserVersion: parsed.ParserVersion), token);
                     await publication.CompleteAsync(report, token);
                     foreach (var row in selected)
                     {

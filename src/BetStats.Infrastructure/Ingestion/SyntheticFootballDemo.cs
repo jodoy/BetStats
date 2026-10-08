@@ -17,7 +17,7 @@ public static class SyntheticFootballDemo
     public static byte[] Bytes(string csv = Csv) => Encoding.UTF8.GetBytes(csv);
 
     // Separate explicit operator setup. Never called by ingestion or host startup.
-    public static async Task<Guid> PrepareAsync(BetStatsDbContext context, bool approveSynthetic, string sourceCode = "synthetic-football-demo", CancellationToken cancellationToken = default)
+    public static async Task<Guid> PrepareAsync(BetStatsDbContext context, bool approveSynthetic, string sourceCode = "synthetic-football-demo", CancellationToken cancellationToken = default, bool allowSyntheticDisplay = false)
     {
         if (!approveSynthetic) throw new InvalidOperationException("Explicit synthetic policy and mapping approval is required.");
         var existing = await context.DataSources.SingleOrDefaultAsync(s => s.Code == sourceCode, cancellationToken);
@@ -28,7 +28,8 @@ public static class SyntheticFootballDemo
         var competition = new Competition(Guid.NewGuid(), football, "Fictional Lantern League", null, CompetitionType.League);
         var season = new Season(Guid.NewGuid(), competition.Id, "Fictional 2026 season");
         var policy = new SourcePolicy(Guid.NewGuid(), source.Id, 1, now, null, "synthetic:owned-fixture", "synthetic:operator-review", now,
-            new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }.Select(p => new PurposePermission(p, PermissionDecision.Allowed)));
+            new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }
+                .Concat(allowSyntheticDisplay ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()).Select(p => new PurposePermission(p, PermissionDecision.Allowed)));
         context.AddRange(source, competition, season, policy);
         Reviewed(CanonicalEntityKind.Competition, "provider:competition:FICT", competition.Id);
         Reviewed(CanonicalEntityKind.Season, FootballDataCsvParser.SeasonReference(Scope.CompetitionReference, Scope.SeasonReference), season.Id);

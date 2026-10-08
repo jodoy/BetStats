@@ -10,9 +10,12 @@ public sealed record FootballImportScope(string CompetitionReference, string Sea
 }
 public sealed record FootballMatchRecord(int Row, string CompetitionReference, string SeasonReference,
     DateOnly MatchDate, string HomeReference, string AwayReference, string HomeName, string AwayName,
-    string MatchReference, bool CompositeMatchReference, SportingEventStatus? Status);
+    string MatchReference, bool CompositeMatchReference, SportingEventStatus? Status,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] FootballResultInput? Result = null);
+public sealed record FootballResultInput(BetStats.Domain.Football.FootballResultValue Value, DateTime? PublishedAtUtc);
 public sealed record ImportIssue(int Row, string Code);
-public sealed record FootballParseResult(int ParsedCount, IReadOnlyList<FootballMatchRecord> Records, IReadOnlyList<ImportIssue> Issues, bool CompletePayload = true);
+public sealed record FootballParseResult(int ParsedCount, IReadOnlyList<FootballMatchRecord> Records, IReadOnlyList<ImportIssue> Issues, bool CompletePayload = true,
+    string ParserVersion = "metadata-v1");
 public interface IFootballMetadataParser
 {
     FootballParseResult Parse(ReadOnlyMemory<byte> bytes, FootballImportScope scope, CancellationToken cancellationToken = default);

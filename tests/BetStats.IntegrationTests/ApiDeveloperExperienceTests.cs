@@ -16,6 +16,25 @@ public sealed class ApiDeveloperExperienceTests
     }
     private static HttpClient Client(Host host) => host.CreateClient(new() { BaseAddress = new("https://localhost"), AllowAutoRedirect = false });
 
+    [Fact]
+    public async Task Visual_studio_profile_opens_available_development_documentation()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "BetStats.slnx"))) root = root.Parent;
+        Assert.NotNull(root);
+        using var settings = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(root.FullName, "src", "BetStats.Api", "Properties", "launchSettings.json")));
+        var profile = settings.RootElement.GetProperty("profiles").GetProperty("http");
+        Assert.Equal("Project", profile.GetProperty("commandName").GetString());
+        Assert.True(profile.GetProperty("launchBrowser").GetBoolean());
+        Assert.Equal("swagger", profile.GetProperty("launchUrl").GetString());
+        var environment = profile.GetProperty("environmentVariables").GetProperty("ASPNETCORE_ENVIRONMENT").GetString();
+        Assert.Equal("Development", environment);
+        await using var host = new Host(environment!);
+        using var client = host.CreateClient(new() { BaseAddress = new(profile.GetProperty("applicationUrl").GetString()!) });
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/" + profile.GetProperty("launchUrl").GetString())).StatusCode);
+    }
+
     [Theory]
     [InlineData("/swagger/index.html")]
     [InlineData("/swagger/v1/swagger.json")]
@@ -36,7 +55,7 @@ public sealed class ApiDeveloperExperienceTests
         Assert.Equal("v1", root.GetProperty("info").GetProperty("version").GetString());
         Assert.Equal("Multi-sport analytics and historical evidence API.", root.GetProperty("info").GetProperty("description").GetString());
         var paths = root.GetProperty("paths");
-        Assert.Equal(3, paths.EnumerateObject().Count());
+        Assert.Equal(7, paths.EnumerateObject().Count());
         foreach (var path in paths.EnumerateObject())
         {
             var operation = path.Value.GetProperty("get");

@@ -2,7 +2,7 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-008.1 historical integrity remediation and development-only Swagger; live provider access disabled.
+> **Status:** BS-009 fictional football results, historical outcome provenance, observed result features and development-only Swagger; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
@@ -15,11 +15,18 @@ dotnet run --project src/BetStats.Api --launch-profile http
 ```
 
 Swagger: http://localhost:5000/swagger; OpenAPI: http://localhost:5000/swagger/v1/swagger.json.
+In Visual Studio, set `BetStats.Api` as the startup project, select the `http` profile,
+and start debugging (F5). The profile opens Swagger automatically. `BetStats.Web`
+is a separate placeholder host and does not serve the API documentation.
 Development-only documentation; public reads are liveness and project-owned sport codes.
 See [historical integrity, API setup and security boundaries](docs/en/data/historical-integrity-development-api.md)
 and [ADR 0022](docs/adr/0022-historical-integrity-and-development-api.md).
 
 ## Product boundary
+
+[BS-009 football results, outcome availability, v3 datasets and fictional development API](docs/en/data/football-results-outcomes.md)
+describes the explicit results demo and additive migration. Observed statistics remain
+partial history; no prediction model is trained or scored. See [ADR 0023](docs/adr/0023-football-results-and-outcome-provenance.md).
 
 [BS-007 dataset snapshots and features](docs/en/data/dataset-snapshots-features.md)
 documents explicit synthetic Worker commands, immutable evidence, verification,

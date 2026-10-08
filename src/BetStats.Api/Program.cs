@@ -7,6 +7,7 @@ builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddProblemDetails();
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.Strict);
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((document, _, _) =>
 {
     document.Info.Title = "BetStats API";
@@ -38,6 +39,7 @@ app.MapGet("/api/v1/sports", Results<Ok<PublicSportPage>, ProblemHttpResult> (in
     .WithDescription("Stable ordinal code ordering. Optional offset defaults to 0 and limit to 20 (maximum 100). Returns project-owned reference vocabulary only; no provider-derived canonical rows or audit metadata.")
     .ProducesProblem(400).ProducesProblem(500);
 
+app.MapDevelopmentFootball();
 app.Run();
 
 public sealed record ApiHealth(string Status);
