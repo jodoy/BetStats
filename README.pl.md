@@ -2,9 +2,9 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** fundament inżynierski BS-001. Dostępne są endpoint liveness API,
-> placeholder Web i host Workera. Funkcje sportowe, persystencja, predykcje,
-> uwierzytelnianie i lokalizacja nie zostały jeszcze zaimplementowane.
+> **Status:** fundament persystencji BS-002. Dostępne są liveness API, placeholder
+> Web i host Workera oraz metadane ingestion PostgreSQL z migracjami EF.
+> Funkcje sportowe, predykcje, uwierzytelnianie i lokalizacja pozostają przyszłą pracą.
 
 ## Granica produktu
 
@@ -36,16 +36,19 @@ kompilacje, analyzery SDK i traktowanie ostrzeżeń jako błędów.
 
 - `src/BetStats.Domain`: przyszłe reguły domenowe; brak zależności projektowych.
 - `src/BetStats.Application`: przyszłe przypadki użycia; zależy od Domain.
-- `src/BetStats.Infrastructure`: przyszłe adaptery; zależy od Application i Domain.
+- `src/BetStats.Infrastructure`: PostgreSQL, DbContext, mapowania i migracje; zależy od Application i Domain.
 - `src/BetStats.Api` i `src/BetStats.Worker`: composition roots, mogą składać Application, Infrastructure i Domain.
 - `src/BetStats.Web`: prezentacja; może zależeć od Application i Domain, bez Infrastructure i persystencji.
 - `tests/BetStats.UnitTests`: projekt dla Domain i Application; obecnie testuje pierwszeństwo konfiguracji hostów.
 - `tests/BetStats.ArchitectureTests`: sprawdza ocenione przez MSBuild zależności w Debug i Release, cykle i obejścia granic.
+- `tests/BetStats.IntegrationTests`: weryfikuje migrację, constraints i persystencję na rzeczywistym PostgreSQL.
 
 Obowiązuje modular monolith oraz [ADR 0013](docs/adr/0013-project-dependency-direction.md).
 Nie dodano sztucznej logiki domenowej. Testy architektury wymagają checkoutu
 źródeł i SDK. CI wykonuje restore, build Release i testy; nieudany test zatrzymuje
-CI. CodeQL zachowuje ręczną kompilację z BS-000. Docker nie jest wymagany do testów.
+CI. CodeQL zachowuje ręczną kompilację z BS-000. Pełne testy wymagają Docker
+z kontenerami Linux; CI jawnie uruchamia unit, architecture i integration na Ubuntu.
+Brak Docker powoduje błąd testów integracyjnych, nie pominięcie.
 
 ## Praca lokalna i konfiguracja
 
@@ -67,11 +70,47 @@ lokalne pliki ustawień, certyfikaty, wyniki kompilacji i lokalne dane są ignor
 automatycznie `.env`; ten plik służy Docker Compose. `.env.example` zawiera
 wyłącznie publiczne placeholdery deweloperskie.
 
-Opcjonalny PostgreSQL: skopiuj `.env.example` do ignorowanego `.env`, zmień hasło
-i wykonaj `docker compose up -d`. Port jest dostępny wyłącznie przez `127.0.0.1`.
-Aplikacja nie łączy się jeszcze z bazą; przykładowa zmienna connection string
-jest przeznaczona dla przyszłej integracji. EF Core, Testcontainers,
-OpenTelemetry i podsystem ML są planowane, ale jeszcze niezintegrowane.
+## PostgreSQL i migracje
+
+Skopiuj `.env.example` do ignorowanego `.env` (`Copy-Item .env.example .env`),
+zmień hasło i zgodny connection string. Compose wymaga POSTGRES_PASSWORD;
+baza/użytkownik/port są konfigurowalne. Port jest dostępny przez `127.0.0.1`,
+a nazwany wolumen zachowuje dane po wyłączeniu.
+
+```sh
+docker compose up -d --wait postgres
+docker compose ps
+docker compose exec postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose down
+```
+
+Ustaw `ConnectionStrings__BetStats` w środowisku procesu API/Worker/EF;
+.NET nie wczytuje automatycznie `.env`. PowerShell:
+`$env:ConnectionStrings__BetStats = Read-Host 'Lokalny connection string' -MaskInput`.
+Infrastructure rejestruje persystencję. Nie ma połączenia ani migracji przy
+starcie hosta; pobranie DbContext wymaga konfiguracji.
+
+```sh
+dotnet tool restore
+dotnet ef migrations list --project src/BetStats.Infrastructure --startup-project src/BetStats.Infrastructure
+dotnet ef migrations script --idempotent --project src/BetStats.Infrastructure --startup-project src/BetStats.Infrastructure --output artifacts/persistence.sql
+dotnet ef database update --project src/BetStats.Infrastructure --startup-project src/BetStats.Infrastructure
+dotnet test tests/BetStats.IntegrationTests --configuration Release --no-build
+```
+
+Przejrzyj SQL przed zastosowaniem. Schemat `ingestion` zawiera DataSources
+(konfiguracja), IngestionRuns (wykonanie) i RawPayloads (niezmienne metadane RAW
+i odwołanie do magazynu). Brak kanonicznych encji sportowych i bajtów payloadu.
+Klucze UUID, czasy UTC `timestamp with time zone`, FK RESTRICT chronią historię.
+
+Zwykłe `docker compose down` zachowuje dane. Aby **usunąć wszystkie lokalne dane**,
+sprawdź projekt Compose, wykonaj `docker compose down --volumes`, uruchom bazę
+i zastosuj migracje ponownie. Nie resetuj wspólnej/produkcyjnej bazy do testów.
+Przyszłe ingestion wymaga SourcePolicy i praw do celu użycia; retencja musi
+koordynować payloady i metadane przez jawny audytowany proces. Nie dodano purge job.
+Szczegóły: [persystencja PostgreSQL](docs/pl/data/persistence-foundation.md),
+[ADR 0014](docs/adr/0014-persistence-foundation.md).
+EF Core 10, Npgsql i Testcontainers są zintegrowane; OpenTelemetry i ML pozostają planowane.
 
 ## Dokumentacja
 

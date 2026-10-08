@@ -43,7 +43,9 @@ public sealed class ProjectDependencyTests
 
             // A binary reference could otherwise bypass the project graph.
             Assert.Empty(items.GetProperty("Reference").EnumerateArray());
-            if (name is "BetStats.Domain" or "BetStats.Application" or "BetStats.Web")
+            // Composition roots register Infrastructure but must not add their
+            // own EF Core/Npgsql implementation package dependencies (ADR 0014).
+            if (name != "BetStats.Infrastructure")
             {
                 Assert.DoesNotContain(items.GetProperty("PackageReference").EnumerateArray(), item =>
                     IsPersistencePackage(item.GetProperty("Identity").GetString()!));

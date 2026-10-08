@@ -2,9 +2,9 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-001 engineering foundation. API liveness endpoint, Web placeholder,
-> and Worker host are present. Sports, persistence, prediction, authentication,
-> and localization features are not implemented yet.
+> **Status:** BS-002 persistence foundation. API liveness, Web placeholder and
+> Worker host are present, with PostgreSQL ingestion metadata and EF migrations.
+> Sports, predictions, authentication and localization are not implemented yet.
 
 ## Product boundary
 
@@ -37,12 +37,13 @@ Evaluation
 - Stable .NET 10 SDK, minimum 10.0.100. `global.json` permits newer 10.0
   feature bands (`latestFeature`) and excludes prerelease SDKs.
 - ASP.NET Core
-- PostgreSQL and Docker (optional local development environment)
+- PostgreSQL 17, EF Core 10 and Npgsql
+- Docker with Linux containers (required for integration tests)
 - GitHub Actions
 - Python permitted behind an explicit ML boundary
 
-EF Core, Testcontainers, OpenTelemetry and the Python ML subsystem are planned;
-they are not installed or integrated yet. Restore requires access to NuGet.org.
+Testcontainers supplies disposable PostgreSQL for integration tests. OpenTelemetry
+and the Python ML subsystem are planned. Restore requires access to NuGet.org.
 
 ## Restore, build and test
 
@@ -73,6 +74,7 @@ src/
 tests/
   BetStats.UnitTests
   BetStats.ArchitectureTests
+  BetStats.IntegrationTests
 
 docs/
   en/
@@ -84,7 +86,7 @@ docs/
 | --- | --- | --- |
 | Domain | Future domain rules; currently empty | None |
 | Application | Future use cases and ports; currently empty | Domain |
-| Infrastructure | Future adapters and persistence; currently empty | Application, Domain |
+| Infrastructure | PostgreSQL metadata, DbContext, mappings and migrations | Application, Domain |
 | Api | ASP.NET Core composition root; `/health/live` | Application, Infrastructure, Domain |
 | Worker | Generic Host composition root | Application, Infrastructure, Domain |
 | Web | ASP.NET Core presentation placeholder | Application, Domain |
@@ -98,10 +100,14 @@ Current tests exercise configuration precedence for the Generic Host and web
 builders without running servers. No business logic exists in those layers yet.
 `BetStats.ArchitectureTests` evaluates the source projects through MSBuild in
 Debug and Release, rejects forbidden edges, cycles, unregistered projects,
-binary reference bypasses and direct persistence packages in inner layers/Web.
+binary reference bypasses and direct persistence packages outside Infrastructure.
 Run these tests from a source checkout with the .NET SDK installed.
+`BetStats.IntegrationTests` verifies the schema and persistence on real PostgreSQL,
+plus registration without startup database access. All three suites run with
+`dotnet test BetStats.slnx`; Docker is required and integration failures are not skipped.
 
-CI runs restore, Release build and all tests on pull requests and `main` pushes.
+CI runs restore, Release build, unit tests, architecture tests and PostgreSQL
+integration tests on pull requests and `main` pushes, on Ubuntu with Docker.
 A failing test fails CI. CodeQL keeps the BS-000 manual Release build and uploads
 analysis results with `security-events: write`.
 
@@ -127,12 +133,47 @@ Use environment variables for sensitive settings. .NET does not automatically
 load `.env`; it is used by Docker Compose. The `.env.example` values are public
 development placeholders, not production configuration.
 
-Optional local PostgreSQL: copy `.env.example` to ignored `.env`, replace the
-placeholder password and run `docker compose up -d`. Its port is bound to
-`127.0.0.1` only. The application does not yet connect to the database; the
-example connection-string variable is reserved for future integration. Docker
-is not required to run the current tests. This is a development environment,
-not a production deployment.
+## PostgreSQL and migrations
+
+Copy `.env.example` to ignored `.env` and replace the placeholder password.
+Compose requires `POSTGRES_PASSWORD`; database/user/port can be configured there.
+The port binds to `127.0.0.1` and data persists in a named Docker volume.
+
+```sh
+docker compose up -d --wait postgres
+docker compose ps
+docker compose exec postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+docker compose down
+```
+
+Set `ConnectionStrings__BetStats` in the API/Worker/EF process environment with
+the matching connection string; `.env` is not read automatically by .NET. In
+PowerShell: `$env:ConnectionStrings__BetStats = Read-Host 'Local connection string' -MaskInput`.
+Persistence is registered by Infrastructure. No connection or migration occurs
+at host startup; requesting a DbContext requires configuration.
+
+```sh
+dotnet tool restore
+dotnet ef migrations list --project src/BetStats.Infrastructure --startup-project src/BetStats.Infrastructure
+dotnet ef migrations script --idempotent --project src/BetStats.Infrastructure --startup-project src/BetStats.Infrastructure --output artifacts/persistence.sql
+dotnet ef database update --project src/BetStats.Infrastructure --startup-project src/BetStats.Infrastructure
+dotnet test tests/BetStats.IntegrationTests --configuration Release --no-build
+```
+
+Review migration SQL before applying it. Initial tables are `ingestion.DataSources`
+(source configuration), `IngestionRuns` (execution) and `RawPayloads` (immutable
+capture metadata and storage reference). They are not canonical sports entities.
+Keys are UUIDs, timestamps are UTC `timestamp with time zone`, and FKs use RESTRICT
+to protect history. Raw bytes/credentials are not stored in these tables.
+
+Ordinary shutdown preserves data. To **delete all local development data**,
+confirm the Compose project, run `docker compose down --volumes`, restart and
+reapply migrations. Never reset a shared/production database for tests.
+SourcePolicy and permitted purposes must be checked before future ingestion.
+Retention must later coordinate licensed payload storage and metadata through an
+explicit audited process; no automatic purge is implemented.
+See [complete setup, migration and retention instructions](docs/en/data/persistence-foundation.md)
+and [ADR 0014](docs/adr/0014-persistence-foundation.md).
 
 ## Documentation
 
