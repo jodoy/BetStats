@@ -8,15 +8,15 @@ using Testcontainers.PostgreSql;
 
 namespace BetStats.IntegrationTests;
 
-public sealed class ResultOperationsMigrationTests
+public sealed class BacktestMigrationTests
 {
     [Fact]
-    public async Task Upgrade_from_bs009_preserves_v1_v2_v3_bytes_hashes_and_database_clocks()
+    public async Task Upgrade_from_bs010_preserves_v1_v2_v3_bytes_hashes_and_database_clocks()
     {
-        await using var pg = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase("bs010_upgrade").WithUsername("bs010_upgrade").WithPassword(Guid.NewGuid().ToString("N")).Build();
+        await using var pg = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase("bs011_upgrade").WithUsername("bs011_upgrade").WithPassword(Guid.NewGuid().ToString("N")).Build();
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); await pg.StartAsync(timeout.Token);
         await using var db = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(pg.GetConnectionString()).Options);
-        await db.GetService<IMigrator>().MigrateAsync("20261008171605_FootballResultsOutcomeProvenance", timeout.Token);
+        await db.GetService<IMigrator>().MigrateAsync("20261008221019_ResultCoverageOperationsEventEnd", timeout.Token);
         var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(timeout.Token);
         // Opaque bytes establish migration preservation; workflow tests establish executable compatibility.
         foreach (var version in new[] { 1, 2 })
@@ -36,7 +36,7 @@ public sealed class ResultOperationsMigrationTests
         { Assert.Equal(metadata[i].Content, migrated[i].Content); Assert.Equal(metadata[i].ManifestHash, migrated[i].ManifestHash); Assert.Equal(metadata[i].RecordedAtUtc, migrated[i].RecordedAtUtc); }
         var migratedResult = await db.FootballResultArtifacts.AsNoTracking().SingleAsync(timeout.Token);
         Assert.Equal(results.Content, migratedResult.Content); Assert.Equal(results.Hash, migratedResult.Hash); Assert.Equal(results.RecordedAtUtc, migratedResult.RecordedAtUtc);
-        Assert.Empty(await db.ResultInventory.ToArrayAsync(timeout.Token)); Assert.Empty(await db.EventEnds.ToArrayAsync(timeout.Token)); Assert.Empty(await db.ResultOperations.ToArrayAsync(timeout.Token));
+        Assert.Empty(await db.Backtests.ToArrayAsync(timeout.Token)); Assert.Empty(await db.BacktestOperations.ToArrayAsync(timeout.Token));
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Empty(await db.Database.GetPendingMigrationsAsync(timeout.Token));
         Assert.Equal(12, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
     }

@@ -11,6 +11,8 @@ namespace BetStats.Infrastructure.Persistence;
 
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
+    public DbSet<BacktestArtifact> Backtests => Set<BacktestArtifact>();
+    public DbSet<BacktestOperationEvent> BacktestOperations => Set<BacktestOperationEvent>();
     public DbSet<BetStats.Domain.Football.ResultInventoryEvidence> ResultInventory => Set<BetStats.Domain.Football.ResultInventoryEvidence>();
     public DbSet<BetStats.Domain.Football.ResultInventoryReview> ResultInventoryReviews => Set<BetStats.Domain.Football.ResultInventoryReview>();
     public DbSet<BetStats.Domain.Football.EventEndEvidence> EventEnds => Set<BetStats.Domain.Football.EventEndEvidence>();
@@ -110,6 +112,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         CoverageModelConfiguration.Configure(modelBuilder);
         FootballResultModelConfiguration.Configure(modelBuilder);
         ResultOperationsModelConfiguration.Configure(modelBuilder);
+        BacktestModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -128,6 +131,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is BacktestArtifact or BacktestOperationEvent && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Backtests and operation history are append-only.");
             if (entry.Entity is BetStats.Domain.Football.ResultInventoryEvidence or BetStats.Domain.Football.ResultInventoryReview or BetStats.Domain.Football.EventEndEvidence or ResultOperationEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Result governance and operations are append-only.");
             if (entry.Entity is BetStats.Domain.Football.FootballResultObservation or FootballResultArtifact && entry.State is EntityState.Modified or EntityState.Deleted)

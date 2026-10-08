@@ -5,7 +5,7 @@ using BetStats.Domain.Football;
 
 namespace BetStats.Application.Evaluation;
 
-public enum EvaluationTarget { MatchWinner, TotalGoals, BothTeamsScoring, FirstHalfGoalOccurrence }
+public enum EvaluationTarget { MatchWinner, TotalGoals, BothTeamsScoring, FirstHalfGoalOccurrence, OverUnder25, FirstHalfTotalGoals }
 public enum PredictionCutoffPolicy { BeforeCalendarDay, BeforeJustifiedKickoff }
 public sealed record EvaluationMetricDefinition(string Name, int Version, string PredictionFormat, string LabelFormat, string ValidRange,
     string MissingLabelBehavior, int MinimumSamples, string Weighting, string Aggregation);
@@ -30,7 +30,8 @@ public sealed record EvaluationDefinition(int Version, Guid SportId, EvaluationT
         foreach (var metric in Metrics)
         {
             if (!EvaluationContracts.Metrics.Contains(metric)) throw new ArgumentException("Unsupported metric semantics.");
-            if ((Target == EvaluationTarget.TotalGoals) != (metric.Name == "mae")) throw new ArgumentException("Metric/target format mismatch.");
+            if ((Target is EvaluationTarget.TotalGoals or EvaluationTarget.FirstHalfTotalGoals) != (metric.Name == "mae")) throw new ArgumentException("Metric/target format mismatch.");
+            if (Target is EvaluationTarget.OverUnder25 or EvaluationTarget.FirstHalfTotalGoals && Version < 3) throw new ArgumentException("New targets require evaluation v3.");
             if (Target == EvaluationTarget.MatchWinner && metric.Name == "calibration_error") throw new ArgumentException("Binary calibration contract cannot describe a three-class winner target.");
         }
     }

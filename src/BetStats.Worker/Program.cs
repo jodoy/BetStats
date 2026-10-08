@@ -11,7 +11,16 @@ var approve = args.Contains("--approve-synthetic", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a is not ("--synthetic-demo" or "--approve-synthetic")).ToArray());
 builder.Services.AddPersistence(builder.Configuration);
 using var host = builder.Build();
-if (builder.Configuration["Results:Action"] is { } resultAction)
+if (builder.Configuration["Backtest:Action"] is not null)
+{
+    if (demo || new[] { "Results:Action", "Coverage:Action", "Quality:Action", "Dataset:Action" }.Any(key => builder.Configuration[key] is not null))
+        throw new ArgumentException("Choose one explicit Worker action.");
+    using var scope = host.Services.CreateScope();
+    using var cancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    Environment.ExitCode = await BetStats.Infrastructure.Evaluation.BacktestOperatorCommand.RunAsync(scope.ServiceProvider, builder.Configuration, builder.Environment.IsDevelopment(), cancellation.Token);
+}
+else if (builder.Configuration["Results:Action"] is { } resultAction)
 {
     if (!builder.Environment.IsDevelopment() || demo || builder.Configuration["Coverage:Action"] is not null ||
         builder.Configuration["Quality:Action"] is not null || builder.Configuration["Dataset:Action"] is not null)

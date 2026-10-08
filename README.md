@@ -2,10 +2,10 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-010 independent fictional result coverage, durable dataset-v3 operations/recovery and explicit event-end provenance; live provider access disabled.
+> **Status:** BS-011 immutable historical simulations, synthetic baselines, deterministic metrics and explicit backtest recovery; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
-> and Worker host remain minimal. Providers, statistics, predictions,
+> and Worker host remain minimal. Real providers, trained predictions,
 > authentication and localization remain planned.
 
 ## Local API development
@@ -24,10 +24,15 @@ and [ADR 0022](docs/adr/0022-historical-integrity-and-development-api.md).
 
 ## Product boundary
 
+[BS-011 historical backtesting and operator runbook](docs/en/data/historical-backtesting.md)
+describes synthetic predictions and immutable evaluation reports. Strict historical
+evidence gates can produce zero eligible samples; no real model performance is claimed.
+See [ADR 0025](docs/adr/0025-historical-backtesting.md).
+
 [BS-010 result coverage, v3 operator commands, recovery and event end](docs/en/data/result-coverage-operations-event-end.md)
 documents explicit Development-only operations and additive migrations. Completeness
-requires independent fictional evidence; evaluation eligibility is a contract, without
-training or scoring. See [ADR 0024](docs/adr/0024-result-coverage-operations-and-event-end.md).
+requires independent fictional evidence; BS-011 consumes its evaluation eligibility
+contract. See [ADR 0024](docs/adr/0024-result-coverage-operations-and-event-end.md).
 
 [BS-009 football results, outcome availability, v3 datasets and fictional development API](docs/en/data/football-results-outcomes.md)
 describes the explicit results demo and additive migration. Observed statistics remain

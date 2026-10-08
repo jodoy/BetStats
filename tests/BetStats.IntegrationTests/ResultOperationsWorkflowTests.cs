@@ -21,7 +21,7 @@ namespace BetStats.IntegrationTests;
 public sealed class ResultOperationsWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private sealed class Clock(DateTime at) : TimeProvider { public override DateTimeOffset GetUtcNow() => new(at); }
-    private sealed class Scenario : IAsyncDisposable
+    internal sealed class Scenario : IAsyncDisposable
     {
         public required ServiceProvider Provider { get; init; }
         public required IServiceScope Scope { get; init; }
@@ -76,7 +76,7 @@ public sealed class ResultOperationsWorkflowTests(PostgreSqlFixture fixture) : I
         }
         public async ValueTask DisposeAsync() { Scope.Dispose(); await Provider.DisposeAsync(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
-    private async Task<Scenario> Create()
+    internal async Task<Scenario> Create()
     {
         var root = Path.Combine(Path.GetTempPath(), "betstats-bs010-" + Guid.NewGuid().ToString("N"));
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:BetStats"] = fixture.GetConnectionString(), ["Ingestion:RawStoragePath"] = root }).Build();

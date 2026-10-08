@@ -41,7 +41,7 @@ public sealed class ResultDatasetOperations(BetStatsDbContext db, IFootballResul
     private async Task<ResultOperationResult> Run(ResultOperationRequest request, bool recover, string? expected, CancellationToken token)
     {
         QualityPersistence.Operator(request.OperatorId, request.Reason); request.Dataset.Metadata.Definition.Validate();
-        if (!request.Approved || request.OperationId == Guid.Empty || lease < TimeSpan.FromSeconds(1) || lease > TimeSpan.FromMinutes(30)) throw new ArgumentException("Explicit operation UUID, approval and bounded lease required.");
+        if (!request.Approved || request.OperationId == Guid.Empty || !OperationFencing.ValidLease(lease)) throw new ArgumentException("Explicit operation UUID, approval and bounded lease required.");
         var fingerprint = Fingerprint(request.Dataset); var bytes = CanonicalDatasetJson.Serialize(request.Dataset);
         if (bytes.Length > 1024 * 1024) throw new ArgumentException("Result operation request exceeds bound.");
         ResultOperationEvent running;
@@ -74,7 +74,7 @@ public sealed class ResultDatasetOperations(BetStatsDbContext db, IFootballResul
             await adapter.BuildCoreAsync(dataset, true, async (snapshot, cancellation) =>
             {
                 await Lock(request.OperationId, cancellation); var current = await Latest(request.OperationId, cancellation); var now = await QualityPersistence.Now(db, cancellation);
-                if (current?.Status != ResultOperationStatus.Running || current.OwnerToken != running.OwnerToken || current.LeaseUntilUtc is not { } until || until <= now)
+                if (current is null || !OperationFencing.Owns(current.Status, current.OwnerToken, running.OwnerToken, current.LeaseUntilUtc, now))
                     throw new InvalidOperationException("Result operation lease lost; publication fenced.");
                 Add(request.OperationId, current.Sequence + 1, ResultOperationStatus.Succeeded, fingerprint, bytes, running.OwnerToken, null, snapshot, null, request.OperatorId, request.Reason);
                 await db.SaveChangesAsync(cancellation);
