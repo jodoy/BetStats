@@ -8,9 +8,27 @@ Web może zależeć od Application i Domain, bez Infrastructure i persystencji.
 Testy architektury weryfikują graf w Debug i Release przez MSBuild.
 Zobacz [ADR 0013](../../adr/0013-project-dependency-direction.md).
 Pipeline opisuje architekturę docelową. BS-002 dodaje PostgreSQL i metadane
-źródeł/run/RAW w Infrastructure, bez funkcji sportowych.
+źródeł/run/RAW. BS-003 dodaje ogólny model kanoniczny i niezmienną historię
+provenance; ingestion od providerów oraz predykcje pozostają planowane.
 Zobacz [ADR 0014](../../adr/0014-persistence-foundation.md) i
 [konfigurację persystencji](../data/persistence-foundation.md).
+
+## Granice modelu i historii (BS-003)
+
+Domain zawiera Sport, Competition, Season, Participant, SportingEvent,
+EventParticipant oraz reguły jawnych decyzji tożsamości i typowanych obserwacji.
+Application udostępnia `IObservationHistory` i `IIdentityResolutionHistory`.
+Infrastructure implementuje filtry czasowe, mapowania EF i migracje addytywne.
+API/Worker rejestrują kontrakty bez połączenia i migracji przy starcie.
+Web nie zależy od persystencji. Nie dodano endpointów ani zadań ingestion.
+
+Identyfikatory providerów są zakotwiczone w źródle, oddzielnie od UUID kanonicznych.
+Wersjonowane decyzje dopuszczają unresolved/ambiguous bez zgadywania celu.
+Encje kanoniczne opisują stan bieżący; historia używa filtrów dostępności
+obserwacji i utrwalonych celów, bez joinów z bieżącymi projekcjami.
+Constraints i triggery PostgreSQL chronią historię także przed zbiorczym SQL.
+Zobacz [ADR 0015](../../adr/0015-canonical-identity-and-temporal-observations.md)
+i [model, kontrakt czasowy oraz ER](../data/canonical-sports-model.md).
 
 Pipeline:
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`

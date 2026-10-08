@@ -2,9 +2,11 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** fundament persystencji BS-002. Dostępne są liveness API, placeholder
-> Web i host Workera oraz metadane ingestion PostgreSQL z migracjami EF.
-> Funkcje sportowe, predykcje, uwierzytelnianie i lokalizacja pozostają przyszłą pracą.
+> **Status:** BS-003 — model kanoniczny i historia obserwacji.
+> PostgreSQL przechowuje metadane ingestion, encje wielu sportów, jawne decyzje
+> tożsamości i niezmienne obserwacje. API liveness, placeholder Web i host Workera
+> pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
+> i lokalizacja pozostają planowane.
 
 ## Granica produktu
 
@@ -34,17 +36,17 @@ kompilacje, analyzery SDK i traktowanie ostrzeżeń jako błędów.
 
 ## Struktura i testy
 
-- `src/BetStats.Domain`: przyszłe reguły domenowe; brak zależności projektowych.
-- `src/BetStats.Application`: przyszłe przypadki użycia; zależy od Domain.
+- `src/BetStats.Domain`: encje kanoniczne, reguły tożsamości i obserwacji; brak zależności projektowych.
+- `src/BetStats.Application`: kontrakty historycznych zapytań; zależy od Domain.
 - `src/BetStats.Infrastructure`: PostgreSQL, DbContext, mapowania i migracje; zależy od Application i Domain.
 - `src/BetStats.Api` i `src/BetStats.Worker`: composition roots, mogą składać Application, Infrastructure i Domain.
 - `src/BetStats.Web`: prezentacja; może zależeć od Application i Domain, bez Infrastructure i persystencji.
-- `tests/BetStats.UnitTests`: projekt dla Domain i Application; obecnie testuje pierwszeństwo konfiguracji hostów.
+- `tests/BetStats.UnitTests`: reguły Domain/Application, UTC, dostępność, korekty i pierwszeństwo konfiguracji hostów.
 - `tests/BetStats.ArchitectureTests`: sprawdza ocenione przez MSBuild zależności w Debug i Release, cykle i obejścia granic.
-- `tests/BetStats.IntegrationTests`: weryfikuje migrację, constraints i persystencję na rzeczywistym PostgreSQL.
+- `tests/BetStats.IntegrationTests`: migracje od zera i aktualizację BS-002, constraints, historię i wykluczenie przyszłych danych na rzeczywistym PostgreSQL.
 
 Obowiązuje modular monolith oraz [ADR 0013](docs/adr/0013-project-dependency-direction.md).
-Nie dodano sztucznej logiki domenowej. Testy architektury wymagają checkoutu
+Testy architektury wymagają checkoutu
 źródeł i SDK. CI wykonuje restore, build Release i testy; nieudany test zatrzymuje
 CI. CodeQL zachowuje ręczną kompilację z BS-000. Pełne testy wymagają Docker
 z kontenerami Linux; CI jawnie uruchamia unit, architecture i integration na Ubuntu.
@@ -100,7 +102,7 @@ dotnet test tests/BetStats.IntegrationTests --configuration Release --no-build
 
 Przejrzyj SQL przed zastosowaniem. Schemat `ingestion` zawiera DataSources
 (konfiguracja), IngestionRuns (wykonanie) i RawPayloads (niezmienne metadane RAW
-i odwołanie do magazynu). Brak kanonicznych encji sportowych i bajtów payloadu.
+i odwołanie do magazynu). Nie przechowuje bajtów payloadu.
 Klucze UUID, czasy UTC `timestamp with time zone`, FK RESTRICT chronią historię.
 
 Zwykłe `docker compose down` zachowuje dane. Aby **usunąć wszystkie lokalne dane**,
@@ -111,6 +113,15 @@ koordynować payloady i metadane przez jawny audytowany proces. Nie dodano purge
 Szczegóły: [persystencja PostgreSQL](docs/pl/data/persistence-foundation.md),
 [ADR 0014](docs/adr/0014-persistence-foundation.md).
 EF Core 10, Npgsql i Testcontainers są zintegrowane; OpenTelemetry i ML pozostają planowane.
+
+BS-003 dodaje sześć tabel `canonical` i trzy `provenance`, zachowując migrację
+początkową oraz dane ingestion. UUID kanoniczny jest niezależny od identyfikatora
+providera. Migracja dodaje cztery sporty referencyjne; dane testowe są syntetyczne.
+Historia filtruje `AvailableAtUtc <= AsOfUtc` i sortuje po dostępności, utworzeniu
+i UUID. Korekty tworzą nowe rekordy; późniejsze decyzje tożsamości nie zmieniają
+wcześniejszych obserwacji. Bieżące encje kanoniczne nie są źródłem historii.
+Zobacz [model danych, ER i ograniczenia](docs/pl/data/canonical-sports-model.md)
+oraz [ADR 0015](docs/adr/0015-canonical-identity-and-temporal-observations.md).
 
 ## Dokumentacja
 

@@ -6,6 +6,11 @@ API i Worker wywołują `AddPersistence`. Rejestracja i utworzenie kontekstu nie
 łączą się z bazą. Nie ma migracji przy starcie ani `EnsureCreated`.
 Zobacz [ADR 0014](../../adr/0014-persistence-foundation.md).
 
+Ta strona opisuje ingestion z BS-002. BS-003 dodaje oddzielne schematy canonical
+i provenance: [model oraz kontrakt historii](canonical-sports-model.md).
+Opisane niżej ograniczenia ochrony RAW nadal dotyczą metadanych ingestion;
+nowe tabele provenance mają dodatkowo triggery niezmienności w bazie.
+
 ## Schemat i provenance
 
 Tabele znajdują się w schemacie `ingestion`, historia migracji EF w `public`.
