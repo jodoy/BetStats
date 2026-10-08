@@ -49,6 +49,44 @@ public sealed class DatasetWorkflowTests(PostgreSqlFixture fixture) : IClassFixt
     private static Guid Snapshot(DatasetBuildResult result) { Assert.True(result.Status == DatasetBuildStatus.Succeeded, result.FailureCode); return Assert.IsType<Guid>(result.SnapshotId); }
 
     [Fact]
+    public async Task Supported_recent_completed_status_produces_observed_counts_with_frozen_evidence()
+    {
+        await using var s = await Create(); var day = DateOnly.FromDateTime(await s.Now()).AddDays(-7);
+        var csv = "Div,Date,HomeTeam,AwayTeam,FTR,MatchId\nFICT," + day.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) + ",Amber Comets,Cobalt Owls,H,dataset-recent\n";
+        Assert.Equal(ImportOutcome.Succeeded, (await s.Import(csv)).Outcome);
+        var now = await s.Now(); var d = s.Definition with { AsOfUtc = now, Targets = [s.Definition.Targets[0] with { PredictionCutoffUtc = now }] };
+        var id = Snapshot(await s.Build(d)); var row = (await s.Service().InspectAsync(id)).Manifest.Rows[0];
+        Assert.Equal(1, Assert.Single(row.Features.Values, v => v.Name == "home_observed_completed_matches_last_30d").Value);
+        Assert.Equal(1, Assert.Single(row.Features.Values, v => v.Name == "away_observed_completed_matches_last_30d").Value);
+        Assert.NotEmpty(Assert.Single(row.Features.Values, v => v.Name == "home_observed_completed_matches_last_30d").EvidenceIds);
+        Assert.True((await s.Service().VerifyAsync(id)).FeaturesReproducible);
+    }
+    [Fact]
+    public async Task Caller_backdated_availability_cannot_hide_a_late_database_insert()
+    {
+        await using var s = await Create(); var first = await s.Build(); Snapshot(first);
+        var old = await s.Db.Observations.SingleAsync(o => o.DataSourceId == s.Source && o.Type == ObservationType.EventDate && s.Db.ProviderIdentities.Any(i => i.Id == o.ProviderIdentityId && i.ExternalId == "provider:dataset-prior-1"));
+        var anchor = await s.Db.ProviderIdentities.SingleAsync(i => i.Id == old.ProviderIdentityId);
+        var late = new Observation(Guid.NewGuid(), anchor, new(CanonicalEntityKind.SportingEvent, old.CanonicalId!.Value), ObservationType.EventDate,
+            old.RetrievedAtUtc, old.AvailableAtUtc, old.CreatedAtUtc, rawPayloadId: old.RawPayloadId, corrects: old, dateValue: old.DateValue!.Value.AddDays(-1));
+        s.Db.Add(late); await s.Db.SaveChangesAsync();
+        Assert.True(late.AvailableAtUtc <= s.Definition.AsOfUtc); Assert.True(late.RecordedAtUtc > s.Definition.AsOfUtc);
+        Assert.Equal(first.ManifestHash, (await s.Build()).ManifestHash);
+    }
+    [Fact]
+    public async Task Later_unsupported_quality_version_does_not_rewrite_history_and_denies_new_cutoff()
+    {
+        await using var s = await Create(); var original = await s.Build(); Snapshot(original);
+        var observation = await s.Db.Observations.SingleAsync(o => o.Id == s.Definition.Targets[0].DateObservationId);
+        s.Db.QualityAssessments.Add(new() { Id = Guid.NewGuid(), ExecutionId = Guid.NewGuid(), DataSourceId = s.Source, RawPayloadId = observation.RawPayloadId!.Value,
+            ProviderIdentityId = observation.ProviderIdentityId, Row = 6, RecordReference = "provider:dataset-target", SportId = s.Definition.SportId,
+            RuleId = "football.sport", RuleVersion = 2, Passed = true, Severity = QualitySeverity.Info, ReasonCode = "passed", Classification = QualityClassification.Accepted, AssessedAtUtc = await s.Now() });
+        await s.Db.SaveChangesAsync(); Assert.Equal(original.ManifestHash, (await s.Build()).ManifestHash);
+        var now = await s.Now(); var denied = await s.Build(s.Definition with { AsOfUtc = now, Targets = [s.Definition.Targets[0] with { PredictionCutoffUtc = now }] });
+        Assert.Equal(DatasetBuildStatus.Failed, denied.Status); Assert.Equal("target_not_eligible_at_prediction_cutoff", denied.FailureCode);
+    }
+
+    [Fact]
     public async Task Frozen_repeat_build_verification_comparison_and_missing_status_are_explicit()
     {
         await using var s = await Create(); var first = await s.Build(); var id = Snapshot(first); var repeat = await s.Build();
@@ -206,6 +244,25 @@ public sealed class DatasetWorkflowTests(PostgreSqlFixture fixture) : IClassFixt
         await File.WriteAllTextAsync(Path.Combine(s.Root, raw.StorageKey + ".raw"), "fictional corruption");
         var result = await s.Build(); Assert.Equal(DatasetBuildStatus.Failed, result.Status); Assert.Equal("raw_integrity_or_storage", result.FailureCode);
         Assert.Null(result.SnapshotId);
+    }
+    [Fact]
+    public async Task Artifact_database_write_failure_rolls_back_vectors_and_success_and_can_be_rebuilt()
+    {
+        await using var s = await Create(); var fingerprint = CanonicalDatasetJson.Fingerprint(s.Definition);
+        // Disposable class-local database; bounded hexadecimal fingerprint is the only interpolated SQL value.
+        Assert.Matches("^[0-9a-f]{64}$", fingerprint);
+        var sql = "CREATE FUNCTION datasets.synthetic_write_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic artifact write failure' USING ERRCODE='23514'; END $$; " +
+            "CREATE TRIGGER synthetic_write_failure BEFORE INSERT ON datasets.\"Snapshots\" FOR EACH ROW WHEN (NEW.\"DefinitionFingerprint\"='" + fingerprint + "') EXECUTE FUNCTION datasets.synthetic_write_failure();";
+        await s.Db.Database.ExecuteSqlRawAsync(sql);
+        try
+        {
+            var failed = await s.Build(); Assert.Equal(DatasetBuildStatus.Failed, failed.Status); Assert.Null(failed.SnapshotId);
+            Assert.False(await s.Db.DatasetArtifacts.AnyAsync(a => a.DefinitionFingerprint == fingerprint));
+            Assert.False(await s.Db.DatasetBuildEvents.AnyAsync(e => e.AttemptId == failed.AttemptId && e.Status == DatasetBuildStatus.Succeeded));
+            Assert.Equal(3, await s.Db.DatasetBuildEvents.CountAsync(e => e.AttemptId == failed.AttemptId));
+        }
+        finally { await s.Db.Database.ExecuteSqlRawAsync("DROP TRIGGER synthetic_write_failure ON datasets.\"Snapshots\"; DROP FUNCTION datasets.synthetic_write_failure();"); }
+        Snapshot(await s.Build());
     }
     [Theory]
     [InlineData("future")][InlineData("target-day")][InlineData("missing")]

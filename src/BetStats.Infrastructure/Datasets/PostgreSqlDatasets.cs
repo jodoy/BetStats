@@ -73,9 +73,12 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             // If the DB is unavailable this may fail: the durable Running record then requires operator recovery.
             await using var terminal = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, CancellationToken.None);
             await LockKey(attempt.ToString("D"), CancellationToken.None);
-            if (!await db.DatasetBuildEvents.AnyAsync(e => e.AttemptId == attempt && e.Sequence == 3))
+            var existing = await db.DatasetBuildEvents.AsNoTracking().SingleOrDefaultAsync(e => e.AttemptId == attempt && e.Sequence == 3);
+            if (existing is null)
                 await Append(attempt, 3, status, fingerprint, request.OperatorId, request.Reason, null, code, CancellationToken.None);
+            var committedHash = existing?.SnapshotId is { } committedId ? await db.DatasetArtifacts.Where(a => a.Id == committedId).Select(a => a.ManifestHash).SingleAsync() : null;
             await terminal.CommitAsync(CancellationToken.None);
+            if (existing is not null) return new(attempt, existing.Status, existing.SnapshotId, committedHash, existing.FailureCode);
             return new(attempt, status, null, null, code);
         }
     }
@@ -153,6 +156,15 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         {
             var statusGate = await gate.EvaluateAsync(new(status.Id, cutoff, d.Purpose, d.Context, d.Mode, d.ReconstructionAtUtc), token);
             if (!statusGate.Eligible || statusGate.InterpretedTargetId != eventId) return null;
+            if (status.RawPayloadId == raw.Id && row.Status != status.StatusValue) throw new Denied("raw_status_mismatch");
+            if (status.RawPayloadId != raw.Id)
+            {
+                var statusRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == status.RawPayloadId, token);
+                await AuthorizeSource(statusRaw.DataSourceId, d, statusRaw.RetrievedAtUtc, await QualityPersistence.Now(db, token), token);
+                if (statusRaw.ByteLength is not { } statusLength) throw new Denied("raw_length_missing");
+                var statusParsed = parser.Parse(await rawStore.ReadAsync(new(statusRaw.StorageKey, statusRaw.ContentHashSha256, statusLength), token), new(d.CompetitionReference, d.SeasonReference), token);
+                if (statusParsed.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId)?.Status != status.StatusValue) throw new Denied("raw_status_mismatch");
+            }
             assessmentIds.AddRange(statusGate.AssessmentIds); statusValue = status.StatusValue?.ToString();
         }
         var policyRefs = new List<DatasetPolicyReference>();

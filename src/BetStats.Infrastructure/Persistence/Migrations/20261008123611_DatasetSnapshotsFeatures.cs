@@ -137,7 +137,7 @@ namespace BetStats.Infrastructure.Persistence.Migrations
                     PERFORM pg_advisory_xact_lock(hashtextextended(NEW."AttemptId"::text,7007));
                     IF NEW."Sequence" > 1 AND NOT EXISTS (
                       SELECT 1 FROM datasets."BuildEvents" WHERE "AttemptId" = NEW."AttemptId" AND "Sequence" = NEW."Sequence" - 1
-                    ) AND NOT (NEW."Sequence" = 3 AND NEW."Status" = 'Failed' AND EXISTS (
+                    ) AND NOT (NEW."Sequence" = 3 AND NEW."Status" IN ('Failed','Cancelled') AND EXISTS (
                       SELECT 1 FROM datasets."BuildEvents" WHERE "AttemptId" = NEW."AttemptId" AND "Sequence" = 1
                     )) THEN RAISE EXCEPTION 'Dataset lifecycle predecessor missing' USING ERRCODE = '23514'; END IF;
                     IF EXISTS (SELECT 1 FROM datasets."BuildEvents" WHERE "AttemptId" = NEW."AttemptId" AND "Sequence" = 3)
