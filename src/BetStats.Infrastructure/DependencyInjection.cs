@@ -26,13 +26,16 @@ public static class DependencyInjection
         services.AddScoped<AuthorizedProviderExecutor>();
         services.AddScoped<IFootballIngestionPersistence, FootballIngestionPersistence>();
         services.AddScoped<FootballIngestion>();
+        services.AddScoped<BetStats.Application.Football.IFootballResults, BetStats.Infrastructure.Football.PostgreSqlFootballResults>();
+        services.AddScoped<BetStats.Application.Football.IFootballResultDatasets, BetStats.Infrastructure.Football.PostgreSqlFootballResultDatasets>();
+        services.AddScoped<BetStats.Application.Football.IDevelopmentFootball, BetStats.Infrastructure.Football.DevelopmentFootball>();
         services.AddScoped<IIdentityReview, IdentityReview>();
         services.AddScoped<IDataReconciliation, DataReconciliation>();
         services.AddScoped<IAnalyticalQualityGate, AnalyticalQualityGate>();
         services.AddScoped<IQualityReports, QualityReports>();
         services.AddScoped<BetStats.Application.Coverage.IHistoricalCoverage, BetStats.Infrastructure.Coverage.HistoricalCoverage>();
         services.AddScoped<BetStats.Application.Datasets.IDatasets, BetStats.Infrastructure.Datasets.PostgreSqlDatasets>();
-        services.AddSingleton<IFootballMetadataParser, FootballDataCsvParser>();
+        services.AddSingleton<IFootballMetadataParser, FootballFixtureParser>();
         services.AddSingleton<IRawPayloadStore>(_ => new FileSystemRawPayloadStore(configuration["Ingestion:RawStoragePath"]
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BetStats", "raw")));
         services.AddSingleton(provider => new RequestBudget(new(10, 100, 1, TimeSpan.FromSeconds(30)), provider.GetRequiredService<TimeProvider>()));

@@ -35,7 +35,7 @@ public sealed class FootballMigrationTests
         await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO ingestion.\"RawPayloads\" (\"Id\", \"DataSourceId\", \"RetrievedAtUtc\", \"CreatedAtUtc\", \"ContentHashSha256\", \"ContentType\", \"StorageKey\", \"RecordedAtUtc\") VALUES ({injectedId}, {source.Id}, {time}, {time}, {hash}, 'text/csv', 'synthetic/new', {time})", timeout.Token);
         Assert.True((await context.RawPayloads.SingleAsync(r => r.Id == injectedId, timeout.Token)).RecordedAtUtc > before);
         Assert.False(context.Database.HasPendingModelChanges()); Assert.Empty(await context.Database.GetPendingMigrationsAsync(timeout.Token));
-        Assert.Equal(9, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(10, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         await Assert.ThrowsAsync<Npgsql.PostgresException>(() => context.RawPayloads.ExecuteUpdateAsync(s => s.SetProperty(r => r.StorageKey, "mutation"), timeout.Token));
     }
 }

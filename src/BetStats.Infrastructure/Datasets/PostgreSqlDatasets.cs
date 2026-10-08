@@ -244,6 +244,8 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         if (manifest.Governance is { } governance)
             await (coverage ?? throw new Denied("coverage_service_missing")).EnsureCurrentAsync(governance, manifest.Definition, token);
     }
+    internal Task EnsureCurrentFrozenAsync(DatasetManifest manifest, CancellationToken token) => Authorize(manifest, true, token);
+    internal Task<DatasetManifest> AssembleFrozenAsync(DatasetDefinition definition, CancellationToken token) => Assemble(definition, CanonicalDatasetJson.Fingerprint(definition), token);
     private Task LockKey(string key, CancellationToken token) => db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 7007))", token);
     private void AddEvent(Guid attempt, int sequence, DatasetBuildStatus status, string fingerprint, string actor, string reason, Guid? snapshot, string? failure) =>
         db.DatasetBuildEvents.Add(new() { Id = Guid.NewGuid(), AttemptId = attempt, Sequence = sequence, Status = status, DefinitionFingerprint = fingerprint,

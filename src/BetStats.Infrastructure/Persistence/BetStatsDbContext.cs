@@ -11,6 +11,8 @@ namespace BetStats.Infrastructure.Persistence;
 
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
+    public DbSet<BetStats.Domain.Football.FootballResultObservation> FootballResults => Set<BetStats.Domain.Football.FootballResultObservation>();
+    public DbSet<FootballResultArtifact> FootballResultArtifacts => Set<FootballResultArtifact>();
     public DbSet<FootballRawContext> FootballRawContexts => Set<FootballRawContext>();
     public DbSet<DataSource> DataSources => Set<DataSource>();
     public DbSet<BetStats.Domain.Coverage.CoverageEvidence> CoverageEvidence => Set<BetStats.Domain.Coverage.CoverageEvidence>();
@@ -102,6 +104,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         QualityModelConfiguration.Configure(modelBuilder);
         DatasetModelConfiguration.Configure(modelBuilder);
         CoverageModelConfiguration.Configure(modelBuilder);
+        FootballResultModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -120,6 +123,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is BetStats.Domain.Football.FootballResultObservation or FootballResultArtifact && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Football results and artifacts are append-only.");
             if (entry.Entity is BetStats.Domain.Coverage.CoverageEvidence or BetStats.Domain.Coverage.CoverageReview or BetStats.Domain.Coverage.EventTimeEvidence && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Coverage and event-time history are append-only.");
             if (entry.Entity is DatasetArtifact or DatasetFeatureRecord or DatasetBuildEvent && entry.State is EntityState.Modified or EntityState.Deleted)

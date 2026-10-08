@@ -2,7 +2,7 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-008.1 — poprawki integralności historycznej i Swagger w Development; realny provider pozostaje wyłączony.
+> **Status:** BS-009 — fikcyjne wyniki piłkarskie, historyczne etykiety, obserwowane cechy wynikowe i Swagger w Development; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
@@ -15,10 +15,17 @@ dotnet run --project src/BetStats.Api --launch-profile http
 ```
 
 Swagger: http://localhost:5000/swagger; OpenAPI: http://localhost:5000/swagger/v1/swagger.json.
+W Visual Studio ustaw `BetStats.Api` jako projekt startowy, wybierz profil `http`
+i uruchom debugowanie (F5). Profil automatycznie otwiera Swaggera. `BetStats.Web`
+jest osobnym hostem demonstracyjnym i nie udostępnia dokumentacji API.
 Dokumentacja działa tylko w Development. Publiczne odczyty: liveness i własny katalog sportów.
 [Integralność historyczna, konfiguracja i granice API](docs/pl/data/historical-integrity-development-api.md).
 
 ## Granica produktu
+
+[BS-009: wyniki, etykiety, zbiory v3 i fikcyjne API](docs/pl/data/football-results-outcomes.md)
+opisuje jawne demo i addytywną migrację. Statystyki dotyczą częściowej historii;
+nie trenujemy ani nie oceniamy modeli. [ADR 0023](docs/adr/0023-football-results-and-outcome-provenance.md).
 
 [Zbiory danych i cechy BS-007](docs/pl/data/dataset-snapshots-features.md)
 opisują jawne polecenia syntetyczne, weryfikację, porównanie i odzyskiwanie.

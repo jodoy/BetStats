@@ -40,7 +40,7 @@ internal static class QualityPersistence
         db.IdentityResolutions.AsNoTracking().Where(d => d.ProviderIdentityId == identity && d.RecordedAtUtc <= now && d.DecidedAtUtc <= now).OrderByDescending(d => d.Version).FirstOrDefaultAsync(token);
     public static async Task<bool> ReceiptExists(BetStatsDbContext db, RawPayload raw, FootballImportScope scope, FootballMatchRecord row, DateTime now, CancellationToken token)
     {
-        var batch = FootballPublicationKeys.Batch(scope, raw.ContentHashSha256);
+        var batch = FootballPublicationKeys.Batch(scope, raw.ContentHashSha256, row.Result is null ? FootballDataCsvParser.Version : FootballResultsCsvParser.Version);
         if (await db.IngestionPublications.AnyAsync(p => p.DataSourceId == raw.DataSourceId && p.Key == batch && p.IsBatch, token)) return true;
         var targets = new List<Guid>();
         foreach (var reference in new[] { (CanonicalEntityKind.Competition, "provider:competition:" + row.CompetitionReference),
@@ -77,7 +77,7 @@ internal static class QualityPersistence
         var changed = date is not null && date.DateValue != record.MatchDate;
         var oldTarget = date?.CanonicalId;
         var stale = date is not null && (date.RetrievedAtUtc > raw.RetrievedAtUtc || (oldTarget is not null && ed?.CanonicalId is { } target && oldTarget != target));
-        var missing = c is null || s is null || h is null || a is null || ed?.Status == ResolutionStatus.Ambiguous || (e is null && record.Status != SportingEventStatus.Completed);
+        var missing = c is null || s is null || h is null || a is null || ed?.Status == ResolutionStatus.Ambiguous || (e is null && record.Status != SportingEventStatus.Completed && record.Result is null);
         var mismatch = e is not null && (e.SportId != FootballQualityRules.Football || e.CompetitionId != c?.Id || e.SeasonId != s?.Id);
         var assignments = e is not null && (!e.Participants.Any(p => p.ParticipantId == h?.Id && p.Role == ParticipantRole.Home) || !e.Participants.Any(p => p.ParticipantId == a?.Id && p.Role == ParticipantRole.Away));
         var facts = new FootballQualityEvidence(FootballQualityRules.Football, c?.SportId, s?.CompetitionId, c?.Id, record.MatchDate,

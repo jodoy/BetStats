@@ -284,7 +284,7 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         // v1 bytes use the original serializer. Remove only later additive schemas to recreate the BS-007 database state.
         await db.GetService<IMigrator>().MigrateAsync("20261008123611_DatasetSnapshotsFeatures", timeout.Token);
         await db.Database.MigrateAsync(timeout.Token);
-        Assert.Equal(9, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(db.Database.HasPendingModelChanges());
+        Assert.Equal(10, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(db.Database.HasPendingModelChanges());
         Assert.Empty(await db.CoverageEvidence.ToListAsync()); Assert.Empty(await db.CoverageReviews.ToListAsync()); Assert.Empty(await db.EventTimeEvidence.ToListAsync());
         var after = await db.DatasetArtifacts.AsNoTracking().SingleAsync(a => a.Id == id); Assert.Equal(bytes, after.Content); Assert.Equal(recorded, after.RecordedAtUtc);
         Assert.Equal(observations, await db.Observations.AsNoTracking().OrderBy(o => o.Id).Select(o => new { o.Id, o.RecordedAtUtc }).ToListAsync());

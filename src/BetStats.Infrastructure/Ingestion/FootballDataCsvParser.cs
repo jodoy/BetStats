@@ -70,7 +70,7 @@ public sealed class FootballDataCsvParser : IFootballMetadataParser
         }
         return new(rows.Count - 1, records, issues);
     }
-    private static List<string[]> Csv(string text, CancellationToken cancellationToken)
+    internal static List<string[]> Csv(string text, CancellationToken cancellationToken)
     {
         var rows = new List<string[]>(); var cells = new List<string>(); var value = new StringBuilder(); var quoted = false; var closed = false;
         void Cell() { cells.Add(value.ToString()); value.Clear(); closed = false; if (cells.Count > 16) throw new InvalidDataException(); }

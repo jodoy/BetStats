@@ -13,10 +13,12 @@ using Microsoft.EntityFrameworkCore;
 using BetStats.Application.Quality;
 using BetStats.Domain.Quality;
 using BetStats.Infrastructure.Quality;
+using BetStats.Domain.Football;
+using BetStats.Application.Football;
 
 namespace BetStats.Infrastructure.Ingestion;
 
-public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISourcePolicyEvaluator policies, ISourceOperationalStatus sourceStatus) : IFootballIngestionPersistence
+public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISourcePolicyEvaluator policies, ISourceOperationalStatus sourceStatus, IRawPayloadStore? rawStore = null) : IFootballIngestionPersistence
 {
     private static readonly Guid Football = ReferenceSports.All.Single(s => s.Code == "football").Id;
     private Guid? lastPolicy;
@@ -66,7 +68,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         var now = await Now(cancellationToken);
         var raw = new RawPayload { Id = Guid.NewGuid(), DataSourceId = attempt.DataSourceId, IngestionRunId = attempt.RunId,
             RetrievedAtUtc = content.RetrievedAtUtc, CreatedAtUtc = now, ContentType = content.ContentType, ContentHashSha256 = payload.Hash,
-            StorageKey = payload.StorageKey, ByteLength = payload.Length, ExternalReference = "fixture:metadata-v1" };
+            StorageKey = payload.StorageKey, ByteLength = payload.Length, ExternalReference = "fixture:" + FootballFixtureParser.Profile(content.Bytes) };
         context.Add(raw);
         context.FootballRawContexts.Add(new() { RawId = raw.Id, SourceId = raw.DataSourceId, CompetitionReference = scope.CompetitionReference, SeasonReference = scope.SeasonReference });
         await Save(cancellationToken); await transaction.CommitAsync(cancellationToken);
@@ -75,6 +77,16 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
 
     public async Task<ImportReport> PublishAsync(ImportReport attempt, RawCapture raw, FootballImportScope scope, FootballParseResult parsed, CancellationToken cancellationToken)
     {
+        if (parsed.ParserVersion is not (FootballDataCsvParser.Version or FootballResultsCsvParser.Version)) throw new IngestionDeniedException("unsupported_parser_version", "Provenance");
+        if (parsed.ParserVersion == FootballResultsCsvParser.Version)
+        {
+            await EnsureCaptureAllowedAsync(attempt.DataSourceId, cancellationToken);
+            var verified = new FootballResultsCsvParser().Parse(await (rawStore ?? throw new IngestionDeniedException("result_raw_store_required")).ReadAsync(raw.Object, cancellationToken), scope, cancellationToken);
+            // Reconciliation can select a subset, but may never invent result values.
+            if (parsed.Records.Any(r => !verified.Records.Contains(r))) throw new IngestionDeniedException("result_raw_mismatch", "Provenance");
+            if (parsed.CompletePayload && (!parsed.Records.SequenceEqual(verified.Records) || !parsed.Issues.SequenceEqual(verified.Issues))) throw new IngestionDeniedException("result_incomplete_publication", "Provenance");
+        }
+        else if (parsed.Records.Any(r => r.Result is not null)) throw new IngestionDeniedException("result_parser_version_mismatch", "Provenance");
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         await LockSource(attempt.DataSourceId, cancellationToken);
         await Guard(attempt.DataSourceId, [DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics], cancellationToken);
@@ -85,7 +97,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
         var original = await FootballContext.ReadAsync(context, storedRaw, scope, cancellationToken);
         if (original != scope) throw new IngestionDeniedException("original_scope_mismatch", "Provenance");
-        var key = FootballPublicationKeys.Batch(scope, raw.Object.Hash);
+        var key = FootballPublicationKeys.Batch(scope, raw.Object.Hash, parsed.ParserVersion);
         var previous = await context.IngestionPublications.SingleOrDefaultAsync(r => r.DataSourceId == attempt.DataSourceId && r.Key == key, cancellationToken);
         issues = parsed.Issues.Select(i => $"{i.Row}:{i.Code}").ToArray();
         if (previous is not null)
@@ -102,6 +114,16 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         {
             cancellationToken.ThrowIfCancellationRequested();
             var assessment = await QualityPersistence.Assess(context, storedRaw, record, now, cancellationToken);
+            FootballResultObservation? previousResult = null;
+            if (record.Result is { } input)
+            {
+                previousResult = await context.FootballResults.Where(r => r.SourceId == attempt.DataSourceId && r.SourceEventReference == record.MatchReference).OrderByDescending(r => r.Version).FirstOrDefaultAsync(cancellationToken);
+                var resultIssues = FootballResultRules.Assess(input.Value, previousResult?.Value,
+                    previousResult is null || raw.RetrievedAtUtc > previousResult.RetrievedAtUtc && (input.PublishedAtUtc is null || previousResult.PublishedAtUtc is null || input.PublishedAtUtc > previousResult.PublishedAtUtc),
+                    previousResult is not null && (raw.RetrievedAtUtc == previousResult.RetrievedAtUtc || input.PublishedAtUtc is not null && input.PublishedAtUtc == previousResult.PublishedAtUtc)).ToList();
+                if (input.PublishedAtUtc > raw.RetrievedAtUtc) resultIssues.Add(new(new("result_publication", 1), false, QualitySeverity.Error, true, "result_publication_after_retrieval", QualityClassification.Invalid));
+                assessment = (assessment.Identity, assessment.Issues.Concat(resultIssues).ToArray());
+            }
             QualityPersistence.Record(context, attempt.AttemptId, storedRaw, attempt.RunId, record.Row, record.MatchReference, assessment.Identity,
                 lastPolicy, now, assessment.Issues);
             var blocking = assessment.Issues.FirstOrDefault(i => i.BlocksEligibility && i.Classification != QualityClassification.IdentityAmbiguous);
@@ -140,9 +162,9 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
                 else
                 {
                     // No scheduling/status guess: only create events whose source establishes completion.
-                    if (record.Status == SportingEventStatus.Completed)
+                    if (record.Status == SportingEventStatus.Completed || record.Result is not null)
                     {
-                        sportingEvent = new SportingEvent(Guid.NewGuid(), competition, season, null, SportingEventStatus.Completed, now);
+                        sportingEvent = new SportingEvent(Guid.NewGuid(), competition, season, null, record.Status ?? SportingEventStatus.Completed, now);
                         sportingEvent.AddParticipant(home, ParticipantRole.Home, 1); sportingEvent.AddParticipant(away, ParticipantRole.Away, 2); context.Add(sportingEvent);
                         context.Add(new IdentityResolution(Guid.NewGuid(), eventAnchor, ResolutionStatus.Resolved, new(CanonicalEntityKind.SportingEvent, sportingEvent.Id),
                             "ingestion:exact-reviewed-context", "New event from explicit competition/season/participant mappings", now, eventDecision, raw.Id));
@@ -160,6 +182,15 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             await Name(homeAnchor, home?.Id, record.HomeName); await Name(awayAnchor, away?.Id, record.AwayName);
             await Fact(eventAnchor, sportingEvent?.Id, ObservationType.EventDate, record.MatchDate, null);
             if (record.Status is { } status) await Fact(eventAnchor, sportingEvent?.Id, ObservationType.EventStatus, null, status);
+            if (record.Result is { } result && sportingEvent is not null && (previousResult is null || previousResult.Value != result.Value || previousResult.EventDate != record.MatchDate))
+            {
+                var dateObservation = (await Latest(eventAnchor, ObservationType.EventDate))!;
+                context.FootballResults.Add(new() { Id = Guid.NewGuid(), SourceId = attempt.DataSourceId, RawId = raw.Id, ProviderIdentityId = eventAnchor.Id,
+                    EventId = sportingEvent.Id, CompetitionId = competition!.Id, SeasonId = season!.Id, HomeId = home!.Id, AwayId = away!.Id,
+                    DateObservationId = dateObservation.Id, SourceEventReference = record.MatchReference, CompetitionReference = record.CompetitionReference,
+                    SeasonReference = record.SeasonReference, EventDate = record.MatchDate, Value = result.Value, Version = (previousResult?.Version ?? 0) + 1,
+                    CorrectsId = previousResult?.Id, PublishedAtUtc = result.PublishedAtUtc, RetrievedAtUtc = raw.RetrievedAtUtc, AvailableAtUtc = now });
+            }
         }
         issues = rowIssues.ToArray();
         await Save(cancellationToken);

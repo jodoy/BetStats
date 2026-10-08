@@ -165,6 +165,6 @@ public sealed class AuditRemediationPersistenceTests(PostgreSqlFixture fixture) 
         Assert.Empty(await new ObservationHistory(context).ReadAsOfAsync(new(CanonicalEntityKind.Participant, before.AddTicks(-10))));
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.AsNoTracking().SingleAsync(timeout.Token)).StorageKey);
         Assert.False(context.Database.HasPendingModelChanges()); Assert.Empty(await context.Database.GetPendingMigrationsAsync(timeout.Token));
-        Assert.Equal(9, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(10, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
     }
 }
