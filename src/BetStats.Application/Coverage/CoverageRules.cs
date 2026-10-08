@@ -39,11 +39,18 @@ public static class CoverageRules
         if (items.Any(i => i.Status is CoverageStatus.Partial or CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty)) return CoverageStatus.Partial;
         return items.Count > 0 && items.All(i => i.Status == CoverageStatus.Expired) ? CoverageStatus.Expired : CoverageStatus.Unknown;
     }
+    public static void ValidateRequirement(FeatureCoverageRequirement requirement)
+    {
+        if (string.IsNullOrWhiteSpace(requirement.FeatureName) || requirement.FeatureName.Length > 200 || requirement.Version != 1 || requirement.MinimumQualityVersion != 1 ||
+            requirement.ObservationTypes is null || requirement.ObservationTypes.Count is < 1 or > 2 || requirement.ObservationTypes.Distinct().Count() != requirement.ObservationTypes.Count ||
+            requirement.ObservationTypes.Any(t => t is not (ObservationType.EventDate or ObservationType.EventStatus)) ||
+            requirement.LookbackDays is < 1 or > 730 || requirement.RequiredStatus != "Completed" ||
+            requirement.PartialAllowed == requirement.CompletenessRequired) throw new ArgumentException("Explicit supported feature coverage requirement required.");
+    }
     public static FeatureCoverageDecision Gate(FeatureCoverageRequirement requirement, IReadOnlyList<CoverageReport> reports)
     {
-        if (string.IsNullOrWhiteSpace(requirement.FeatureName) || requirement.Version != 1 || requirement.MinimumQualityVersion != 1 || requirement.ObservationTypes.Count == 0 ||
-            requirement.LookbackDays is < 1 or > 730 || requirement.RequiredStatus != "Completed" || reports.Count is < 1 or > 10 ||
-            requirement.PartialAllowed == requirement.CompletenessRequired) throw new ArgumentException("Explicit supported feature coverage requirement required.");
+        ValidateRequirement(requirement);
+        if (reports.Count is < 1 or > 10) throw new ArgumentException("Bounded coverage reports required.");
         foreach (var report in reports)
         {
             report.Query.Scope.Validate();

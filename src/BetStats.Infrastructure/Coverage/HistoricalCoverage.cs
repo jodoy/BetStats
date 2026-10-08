@@ -127,6 +127,14 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
     {
         var sourcePolicy = await db.SourcePolicies.AsNoTracking().SingleAsync(p => p.Id == evidence.PolicyId, token);
         if (sourcePolicy.TermsReference != "synthetic:owned-fixture" || evidence.Scope.Interval.Kind != IntervalKind.Calendar || evidence.Scope.Interval.CalendarBasis != "UTC-calendar") return false;
+        var inventoryRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == evidence.RawId, token);
+        try
+        {
+            var proof = CanonicalDatasetJson.Deserialize<CoverageInventory>((await Read(inventoryRaw, token)).ToArray());
+            if (proof.Contract != Contract || proof.Scope != evidence.Scope || proof.Claim != evidence.Claim || proof.ObservationIds is null ||
+                proof.ObservationIds.Count > 1000 || !proof.ObservationIds.Order().SequenceEqual(evidence.SupportingObservationIds.Order())) return false;
+        }
+        catch (Exception error) when (error is System.Text.Json.JsonException or InvalidDataException or FormatException) { return false; }
         var observations = await db.Observations.AsNoTracking().Where(o => o.DataSourceId == evidence.SourceId && o.Type == evidence.Scope.ObservationType &&
             o.AvailableAtUtc <= cutoff && o.RecordedAtUtc <= cutoff && !db.Observations.Any(n => n.ProviderIdentityId == o.ProviderIdentityId && n.Type == o.Type && n.Version > o.Version && n.AvailableAtUtc <= cutoff && n.RecordedAtUtc <= cutoff))
             .OrderBy(o => o.Id).Take(1001).ToListAsync(token);
@@ -251,6 +259,9 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             if (raw.RecordedAtUtc > asOf || raw.ContentHashSha256 != e.RawHash) continue;
             if (!(await gate.EvaluateAsync(new(e.DateObservationId, asOf, purpose, context, mode, reconstruction), token)).Eligible) continue;
             var resolution = EventTimeRules.Resolve(e.Value);
+            var dateObservation = await db.Observations.AsNoTracking().SingleAsync(o => o.Id == e.DateObservationId, token);
+            if (e.Value.LocalDate is { } localDate && dateObservation.DateValue is { } observedDate && localDate != observedDate)
+                resolution = new(null, e.Value.Precision, "event_time_date_disagrees_with_date_observation");
             if (claims.Any(other => other.Id != e.Id && EventTimeRules.Conflicts(e.Value, other.Value))) resolution = new(null, e.Value.Precision, "conflicting_event_time_claims");
             results.Add(new(e, decision.Id, eventId, resolution));
         }

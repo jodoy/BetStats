@@ -10,18 +10,20 @@ public sealed record EvaluationMetricDefinition(string Name, int Version, string
 public sealed record OutcomeAvailability(Guid EvidenceId, DateTime AvailableUtc, DateTime RecordedUtc, int Version);
 public sealed record EvaluationDefinition(int Version, Guid SportId, EvaluationTarget Target, DatasetMode Mode, DateTime? ReconstructionUtc,
     PredictionCutoffPolicy CutoffPolicy, TimeSpan PredictionHorizon, IReadOnlyList<string> RequiredEvidence, string OutcomeObservationType,
-    int QualityVersion, FeatureCoverageRequirement Coverage, IReadOnlyList<EvaluationMetricDefinition> Metrics)
+    int QualityVersion, FeatureCoverageRequirement Coverage, IReadOnlyList<EvaluationMetricDefinition> Metrics,
+    string OutcomeAvailabilityRule = "after-prediction-and-recorded-by-evaluation-v1")
 {
     public void Validate()
     {
         if (Version < 1 || SportId == Guid.Empty || !Enum.IsDefined(Target) || !Enum.IsDefined(Mode) || !Enum.IsDefined(CutoffPolicy) ||
-            PredictionHorizon <= TimeSpan.Zero || PredictionHorizon > TimeSpan.FromDays(365) || QualityVersion != 1 ||
+            PredictionHorizon <= TimeSpan.Zero || PredictionHorizon > TimeSpan.FromDays(365) || QualityVersion != 1 || OutcomeAvailabilityRule != "after-prediction-and-recorded-by-evaluation-v1" ||
             RequiredEvidence is null || !new[] { "features", "event-time", "quality", "coverage", "source-policy" }.All(RequiredEvidence.Contains) ||
             OutcomeObservationType != Target.ToString() || Coverage is null || !Coverage.CompletenessRequired || Coverage.PartialAllowed ||
             Metrics is null || Metrics.Count is < 1 or > 5 || Metrics.Select(m => m.Name).Distinct().Count() != Metrics.Count ||
             Mode == DatasetMode.HistoricalAsKnown && ReconstructionUtc is not null ||
             Mode == DatasetMode.RetrospectiveReconstruction && ReconstructionUtc is not { Kind: DateTimeKind.Utc })
             throw new ArgumentException("Explicit versioned evaluation definition required; future outcomes are contracts only.");
+        CoverageRules.ValidateRequirement(Coverage);
         foreach (var metric in Metrics)
         {
             if (!EvaluationContracts.Metrics.Contains(metric)) throw new ArgumentException("Unsupported metric semantics.");
@@ -42,14 +44,15 @@ public static class EvaluationContracts
     public static bool CanUseAsFeature(OutcomeAvailability evidence, DateTime predictionCutoff) => evidence.EvidenceId != Guid.Empty &&
         evidence.Version > 0 && evidence.AvailableUtc.Kind == DateTimeKind.Utc && evidence.RecordedUtc.Kind == DateTimeKind.Utc &&
         predictionCutoff.Kind == DateTimeKind.Utc && evidence.AvailableUtc <= predictionCutoff && evidence.RecordedUtc <= predictionCutoff;
-    public static EvaluationEligibility Eligibility(EvaluationDefinition definition, DateTime predictionCutoff, DateTime featureAvailable,
+    public static EvaluationEligibility Eligibility(EvaluationDefinition definition, DateTime predictionCutoff, DateTime featureAvailable, DateTime featureRecorded,
         OutcomeAvailability label, DateTime evaluationCutoff, bool authorized, FeatureCoverageDecision coverage)
     {
         definition.Validate(); var reasons = new List<string>();
-        if (new[] { predictionCutoff, featureAvailable, label.AvailableUtc, label.RecordedUtc, evaluationCutoff }.Any(t => t.Kind != DateTimeKind.Utc || t.Ticks % 10 != 0) ||
+        if (new[] { predictionCutoff, featureAvailable, featureRecorded, label.AvailableUtc, label.RecordedUtc, evaluationCutoff }.Any(t => t.Kind != DateTimeKind.Utc || t.Ticks % 10 != 0) ||
             evaluationCutoff < predictionCutoff || label.EvidenceId == Guid.Empty || label.Version < 1) throw new ArgumentException("UTC evidence/cutoffs and version required.");
         if (definition.ReconstructionUtc is { } r && (r < predictionCutoff || r > evaluationCutoff)) throw new ArgumentException("Reconstruction boundary must be explicit and within evaluation.");
         if (featureAvailable > predictionCutoff) reasons.Add("feature_first_available_after_prediction");
+        if (featureRecorded > predictionCutoff) reasons.Add("feature_first_recorded_after_prediction");
         if (label.AvailableUtc <= predictionCutoff) reasons.Add("outcome_not_separated_from_prediction");
         if (label.AvailableUtc > evaluationCutoff || label.RecordedUtc > evaluationCutoff) reasons.Add("outcome_not_available_for_evaluation");
         if (!authorized) reasons.Add("source_permission_denied");

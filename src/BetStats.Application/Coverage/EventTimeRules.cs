@@ -45,6 +45,7 @@ public static class EventTimeRules
     {
         var x = Resolve(a); var y = Resolve(b);
         if (x.UtcInstant is not null && y.UtcInstant is not null) return x.UtcInstant != y.UtcInstant;
-        return a.LocalDate is not null && b.LocalDate is not null && a.TimeZoneId == b.TimeZoneId && a.LocalDate != b.LocalDate;
+        return a.LocalDate is not null && b.LocalDate is not null && a.LocalDate != b.LocalDate &&
+            (a.TimeZoneId == b.TimeZoneId || a.Precision == EventTimePrecision.DateOnly || b.Precision == EventTimePrecision.DateOnly);
     }
 }

@@ -92,12 +92,13 @@ public sealed class CoverageAndEvaluationTests
     [Fact] public void Late_label_is_not_a_feature_but_is_valid_for_later_evaluation() {
         var label = new OutcomeAvailability(Guid.NewGuid(), T.AddHours(3), T.AddHours(4), 1);
         Assert.False(EvaluationContracts.CanUseAsFeature(label, T));
-        Assert.True(EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), label, T.AddDays(1), true, Complete).Eligible);
-        Assert.Contains("feature_first_available_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(1), label, T.AddDays(1), true, Complete).Reasons);
+        Assert.True(EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), T, label, T.AddDays(1), true, Complete).Eligible);
+        Assert.Contains("feature_first_available_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(1), T, label, T.AddDays(1), true, Complete).Reasons);
+        Assert.Contains("feature_first_recorded_after_prediction", EvaluationContracts.Eligibility(Definition(), T, T.AddHours(-1), T.AddHours(1), label, T.AddDays(1), true, Complete).Reasons);
     }
     [Fact] public void Labels_need_trusted_receipt_permission_coverage_and_version() {
         var label = new OutcomeAvailability(Guid.NewGuid(), T.AddHours(1), T.AddDays(2), 2);
-        var denied = EvaluationContracts.Eligibility(Definition(), T, T, label, T.AddDays(1), false, Complete with { Outcome = FeatureCoverageOutcome.InsufficientCoverage });
+        var denied = EvaluationContracts.Eligibility(Definition(), T, T, T, label, T.AddDays(1), false, Complete with { Outcome = FeatureCoverageOutcome.InsufficientCoverage });
         Assert.False(denied.Eligible); Assert.Equal(4, denied.Reasons.Count);
     }
     [Fact] public void Invalid_metric_formats_and_undefined_semantics_are_rejected() {

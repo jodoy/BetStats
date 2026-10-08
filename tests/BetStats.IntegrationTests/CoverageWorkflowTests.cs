@@ -175,14 +175,52 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         s.Db.Entry(claim).Property(c => c.Version).CurrentValue = 2; await Assert.ThrowsAsync<InvalidOperationException>(() => s.Db.SaveChangesAsync());
     }
     [Fact]
+    public async Task Expired_evidence_is_visible_and_cannot_qualify_a_feature()
+    {
+        await using var s = await Create(); var raw = await s.Raw(new CoverageInventory(Contract, s.Scope(), CoverageStatus.Partial, []));
+        var claim = await s.Coverage.RecordAsync(new(s.Scope(), CoverageStatus.Partial, CoverageBasis.ManualStatement, "short-lived-fiction", raw.Id, 1, null,
+            raw.RetrievedAtUtc, raw.RetrievedAtUtc.AddTicks(10), "operator:expiry", "Already expired synthetic validity"));
+        var report = await s.Coverage.ReportAsync(s.Query(s.Scope(), await s.Now())); Assert.Equal(CoverageStatus.Expired, report.Status);
+        Assert.Equal(claim.Id, Assert.Single(report.Items).Evidence.Id);
+        Assert.Equal(FeatureCoverageOutcome.ExpiredCoverage, CoverageRules.Gate(new("observed", 1, [ObservationType.EventDate], null, false, "Completed", 1, true, false), [report]).Outcome);
+        Assert.Equal(CoverageReviewStatus.Rejected, (await s.Approve(claim)).Status);
+    }
+    [Fact]
+    public async Task A_sql_insert_cannot_turn_unrelated_csv_raw_into_an_exhaustive_inventory()
+    {
+        await using var s = await Create(); var scope = s.Scope(new(2026, 5, 1), new(2026, 5, 10));
+        var claim = await s.Claim(scope, CoverageStatus.VerifiedEmpty, ids: []); var o = await s.Db.Observations.SingleAsync(o => o.Id == s.Definition.Targets[0].DateObservationId);
+        var forgedId = Guid.NewGuid();
+        await s.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO coverage.\"Evidence\" (\"Id\",\"SourceId\",\"Scope\",\"Claim\",\"Basis\",\"EvidenceReference\",\"RawId\",\"RawHash\",\"PolicyId\",\"SupportingObservationIds\",\"Version\",\"RetrievedAtUtc\",\"AvailableAtUtc\",\"ValidUntilUtc\",\"OperatorId\",\"Reason\") SELECT {forgedId},e.\"SourceId\",e.\"Scope\",e.\"Claim\",e.\"Basis\",e.\"EvidenceReference\",r.\"Id\",r.\"ContentHashSha256\",e.\"PolicyId\",e.\"SupportingObservationIds\",e.\"Version\",r.\"RetrievedAtUtc\",e.\"AvailableAtUtc\",e.\"ValidUntilUtc\",e.\"OperatorId\",e.\"Reason\" FROM coverage.\"Evidence\" e JOIN ingestion.\"RawPayloads\" r ON r.\"Id\"={o.RawPayloadId} WHERE e.\"Id\"={claim.Id}");
+        // An ordinary writer may append a structurally valid ledger claim; RAW contract validation is still mandatory.
+        var forged = await s.Coverage.InspectAsync(forgedId); Assert.Equal(CoverageReviewStatus.Rejected, (await s.Approve(forged)).Status);
+        await s.Db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO coverage.\"Reviews\" (\"Id\",\"EvidenceId\",\"SourceId\",\"Sequence\",\"Status\",\"BasisReference\",\"OperatorId\",\"Reason\",\"ReviewedAtUtc\") VALUES ({Guid.NewGuid()},{forgedId},{s.Source},2,'Approved',{Contract},'operator:untrusted-sql','Test forged guarantee',clock_timestamp())");
+        var report = await s.Coverage.ReportAsync(s.Query(scope, await s.Now())); Assert.Equal(CoverageStatus.Conflicting, report.Status);
+        Assert.Contains(report.Items, i => i.Evidence.Id == forgedId && i.Status == CoverageStatus.Conflicting);
+    }
+    [Fact]
+    public async Task Worker_read_report_time_feature_and_contract_actions_are_explicit()
+    {
+        await using var s = await Create(); var claim = await s.Claim(s.Scope(), CoverageStatus.Partial, CoverageBasis.ManualStatement); await s.Approve(claim);
+        var o = await s.Db.Observations.SingleAsync(o => o.Id == s.Definition.Targets[0].DateObservationId);
+        using var services = new ServiceCollection().AddSingleton<IHistoricalCoverage>(s.Coverage).BuildServiceProvider();
+        var query = s.Query(s.Scope(), await s.Now());
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Coverage:OperatorId"]="operator:worker-read", ["Coverage:Reason"]="Inspect fictional evidence",
+            ["Coverage:EvidenceId"]=claim.Id.ToString(), ["Coverage:IdentityId"]=o.ProviderIdentityId.ToString(), ["Coverage:QueryJson"]=Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(query)),
+            ["Coverage:QueriesJson"]=Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(new[] {query})),
+            ["Coverage:RequirementJson"]=Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(new FeatureCoverageRequirement("observed",1,[ObservationType.EventDate],null,false,"Completed",1,true,false))) }).Build();
+        foreach (var action in new[] { "inspect", "report", "time", "feature-gate", "evaluation-contracts" }) { config["Coverage:Action"]=action; Assert.Equal(0, await CoverageOperatorCommand.RunAsync(services, config, true)); }
+        Assert.Equal(1, await s.Db.CoverageReviews.CountAsync(r => r.EvidenceId == claim.Id)); // Read actions never append approvals.
+    }
+    [Fact]
     public async Task V2_snapshots_freeze_new_reviews_preserve_v1_and_have_deterministic_hashes()
     {
         await using var s = await Create(); var v1 = await s.Build(s.Definition); var oldId = Snapshot(v1); var oldBytes = await s.Db.DatasetArtifacts.Where(a => a.Id == oldId).Select(a => a.Content).SingleAsync();
         var d = await s.CurrentDefinition(); var first = await s.Build(d); var id = Snapshot(first); Assert.Equal(first.ManifestHash, (await s.Build(d)).ManifestHash);
         var snapshot = await s.Datasets.InspectAsync(id); Assert.Equal(2, snapshot.Manifest.ManifestVersion);
         Assert.All(Assert.Single(snapshot.Manifest.Governance!.Rows).Gates, g => Assert.Equal(FeatureCoverageOutcome.EligibleWithPartialCoverage, g.Outcome));
-        var row = snapshot.Manifest.Rows[0]; var scope = s.Scope(d.SeasonStart, DateOnly.FromDateTime(d.Targets[0].PredictionCutoffUtc), row.Target.HomeId);
-        var claim = await s.Claim(scope, CoverageStatus.Partial, CoverageBasis.ManualStatement); await s.Approve(claim);
+        var row = snapshot.Manifest.Rows[0]; var scope = s.Scope(d.SeasonStart, new(2026, 1, 6), row.Target.HomeId);
+        var claim = await s.Claim(scope, CoverageStatus.VerifiedComplete); Assert.Equal(CoverageReviewStatus.Approved, (await s.Approve(claim)).Status);
         Assert.Equal(first.ManifestHash, (await s.Build(d)).ManifestHash);
         var later = await s.Build(await s.CurrentDefinition()); var newer = await s.Datasets.InspectAsync(Snapshot(later)); Assert.NotEqual(first.ManifestHash, later.ManifestHash);
         Assert.Contains(newer.Manifest.Governance!.Rows[0].Coverage.SelectMany(r => r.Items), item => item.Evidence.Id == claim.Id && item.Review is not null);
