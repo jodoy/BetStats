@@ -22,7 +22,7 @@ public sealed class FootballIngestion(AuthorizedProviderExecutor executor, IFoot
             report = report with { RetrievedPayloads = 1 };
             await persistence.EnsureCaptureAllowedAsync(report.DataSourceId, cancellationToken);
             var staged = await storage.StageAsync(content.Bytes, cancellationToken);
-            var raw = await persistence.CaptureAsync(report, content, staged, cancellationToken);
+            var raw = await persistence.CaptureAsync(report, content, staged, scope, cancellationToken);
             await storage.FinalizeAsync(staged, cancellationToken);
             var bytes = await storage.ReadAsync(staged, cancellationToken);
             var parsed = parser.Parse(bytes, scope, cancellationToken);

@@ -2,11 +2,21 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-007 â€” niezmienne zbiory danych, deterministyczne cechy metadanych i bramki czasowe/praw; realny provider pozostaje wyÅ‚Ä…czony.
+> **Status:** BS-008.1 — poprawki integralnoœci historycznej i Swagger w Development; realny provider pozostaje wy³¹czony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji toÅ¼samoÅ›ci i niezmienne obserwacje z paginacjÄ…. API liveness, Web i host Workera
 > pozostajÄ… minimalne. Providery, statystyki, predykcje, uwierzytelnianie
 > i lokalizacja pozostajÄ… planowane.
+
+## Lokalne API
+
+```sh
+dotnet run --project src/BetStats.Api --launch-profile http
+```
+
+Swagger: http://localhost:5000/swagger; OpenAPI: http://localhost:5000/swagger/v1/swagger.json.
+Dokumentacja dzia³a tylko w Development. Publiczne odczyty: liveness i w³asny katalog sportów.
+[Integralnoœæ historyczna, konfiguracja i granice API](docs/pl/data/historical-integrity-development-api.md).
 
 ## Granica produktu
 

@@ -134,7 +134,7 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         if (rows.Select(r => (r.EventId, r.PredictionCutoffUtc)).Distinct().Count() != rows.Count) throw new Denied("duplicate_target");
         return new(d.Version, 1, fingerprint, d, FootballQualityRules.Catalog.Select(r => r.Id + ":" + r.Version).Order(StringComparer.Ordinal).ToArray(),
             rows.OrderBy(r => r.EventId).ThenBy(r => r.PredictionCutoffUtc).ToArray(),
-            d.Version == 2 ? new(1, governanceRows.OrderBy(r => r.EventId).ThenBy(r => r.PredictionCutoffUtc).ToArray()) : null);
+            d.Version == 2 ? new(2, governanceRows.OrderBy(r => r.EventId).ThenBy(r => r.PredictionCutoffUtc).ToArray()) : null);
     }
 
     private static FeatureVector Govern(FeatureVector vector, DatasetGovernanceRow governance) => vector with { SchemaVersion = 2,
@@ -153,7 +153,9 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         // Gate checks receipt time; authorize storage read too, before filesystem I/O.
         await AuthorizeSource(raw.DataSourceId, d, raw.RetrievedAtUtc, await QualityPersistence.Now(db, token), token);
         if (raw.ByteLength is not { } length) throw new Denied("raw_length_missing");
-        var parsed = parser.Parse(await rawStore.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token), new(d.CompetitionReference, d.SeasonReference), token);
+        var originalScope = await FootballContext.ReadAsync(db, raw, new(d.CompetitionReference, d.SeasonReference), token, cutoff);
+        if (originalScope != new FootballImportScope(d.CompetitionReference, d.SeasonReference)) return null;
+        var parsed = parser.Parse(await rawStore.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token), originalScope, token);
         var anchor = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == o.ProviderIdentityId, token);
         var row = parsed.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId);
         if (row is null || row.MatchDate != o.DateValue) return null;
@@ -181,7 +183,7 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                 var statusRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == status.RawPayloadId, token);
                 await AuthorizeSource(statusRaw.DataSourceId, d, statusRaw.RetrievedAtUtc, await QualityPersistence.Now(db, token), token);
                 if (statusRaw.ByteLength is not { } statusLength) throw new Denied("raw_length_missing");
-                var statusParsed = parser.Parse(await rawStore.ReadAsync(new(statusRaw.StorageKey, statusRaw.ContentHashSha256, statusLength), token), new(d.CompetitionReference, d.SeasonReference), token);
+                var statusParsed = parser.Parse(await rawStore.ReadAsync(new(statusRaw.StorageKey, statusRaw.ContentHashSha256, statusLength), token), await FootballContext.ReadAsync(db, statusRaw, originalScope, token, cutoff), token);
                 if (statusParsed.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId)?.Status != status.StatusValue) throw new Denied("raw_status_mismatch");
             }
             assessmentIds.AddRange(statusGate.AssessmentIds); statusValue = status.StatusValue?.ToString();
@@ -276,8 +278,8 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         catch (ArgumentException error) { throw new InvalidDataException("Unsupported manifest definition.", error); }
         if (manifest.ManifestVersion != manifest.Definition.Version ||
             (manifest.ManifestVersion == 1 && manifest.Governance is not null) ||
-            (manifest.ManifestVersion == 2 && (manifest.Governance is not { SchemaVersion: 1 } governance || governance.Rows.Count != manifest.Rows.Count ||
-                governance.Rows.Any(r => r.CoverageSchemaVersion != 1 || r.Gates.Count != FootballMetadataFeatures.Catalog.Count || r.Coverage.Count != 8 || r.EventTimes.Count > 200))))
+            (manifest.ManifestVersion == 2 && (manifest.Governance is not { SchemaVersion: 1 or 2 } governance || governance.Rows.Count != manifest.Rows.Count ||
+                governance.Rows.Any(r => r.CoverageSchemaVersion is not (1 or 2) || r.Gates.Count != FootballMetadataFeatures.Catalog.Count || r.Coverage.Count != 8 || r.EventTimes.Count > 200))))
             throw new InvalidDataException("Unsupported or incomplete manifest governance.");
         return (artifact, manifest);
     }
@@ -290,7 +292,9 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         await tx.CommitAsync(token);
         return new(id, artifact.ManifestHash, artifact.BuiltAtUtc, artifact.RecordedAtUtc, manifest);
     }
-    public async Task<DatasetVerification> VerifyAsync(Guid id, CancellationToken token = default)
+    public Task<DatasetVerification> VerifyAsync(Guid id, CancellationToken token = default) => VerifyCoreAsync(id, false, token);
+    public Task<DatasetVerification> VerifyDeepAsync(Guid id, CancellationToken token = default) => VerifyCoreAsync(id, true, token);
+    private async Task<DatasetVerification> VerifyCoreAsync(Guid id, bool deep, CancellationToken token)
     {
         var reasons = new List<string>();
         DatasetArtifact artifact; DatasetManifest manifest;
@@ -340,6 +344,18 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             {
                 var observation = await db.Observations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == e.DateObservationId, token);
                 var raw = await db.RawPayloads.AsNoTracking().SingleOrDefaultAsync(r => r.Id == e.RawId, token);
+                if (raw is not null)
+                {
+                    try
+                    {
+                        var original = await FootballContext.ReadAsync(db, raw, new(manifest.Definition.CompetitionReference, manifest.Definition.SeasonReference), token, e.EvidenceCutoffUtc);
+                        if (original != new FootballImportScope(manifest.Definition.CompetitionReference, manifest.Definition.SeasonReference)) complete = false;
+                        var scopeDecisions = await db.IdentityResolutions.AsNoTracking().Where(x => e.DecisionIds.Contains(x.Id)).ToListAsync(token);
+                        if (!scopeDecisions.Any(x => x.CanonicalCompetitionId == manifest.Definition.CompetitionId) ||
+                            !scopeDecisions.Any(x => x.CanonicalSeasonId == manifest.Definition.SeasonId)) complete = false;
+                    }
+                    catch (InvalidDataException) { complete = false; reasons.Add("original_scope_unverifiable"); }
+                }
                 if (observation is null || raw is null || raw.ContentHashSha256 != e.RawHash || observation.RawPayloadId != e.RawId ||
                     observation.DateValue != e.EventDate || observation.ProviderIdentityId != e.ProviderIdentityId || observation.DataSourceId != e.SourceId ||
                     observation.AvailableAtUtc != e.DateAvailableUtc || observation.RecordedAtUtc != e.DateRecordedUtc || raw.RecordedAtUtc != e.RawRecordedUtc ||
@@ -367,7 +383,36 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             }
         if (!complete) reasons.Add(permission ? "evidence_incomplete" : "evidence_not_inspected_without_permission");
         if (!reproducible) reasons.Add("feature_reproduction_failed");
-        return new(id, integrity, complete, permission, reproducible, reasons);
+        bool? rawAvailable = null; bool? rawVerified = null;
+        if (deep && !permission) reasons.Add("raw_not_inspected_without_permission");
+        if (deep && permission)
+        {
+            rawAvailable = true; rawVerified = true;
+            var rawIds = Evidence(manifest).SelectMany(e => e.FrozenRecords).Concat(manifest.Governance?.Rows.SelectMany(r => r.FrozenRecords) ?? [])
+                .Where(f => f.Kind == "raw").Select(f => f.Id).Distinct().Order().ToArray();
+            foreach (var rawId in rawIds)
+            {
+                var raw = await db.RawPayloads.AsNoTracking().SingleOrDefaultAsync(r => r.Id == rawId, token);
+                if (raw is null || raw.ByteLength is not { } length) { rawAvailable = false; rawVerified = false; reasons.Add("raw_metadata_missing"); continue; }
+                try
+                {
+                    await AuthorizeSource(raw.DataSourceId, manifest.Definition, raw.RetrievedAtUtc, await QualityPersistence.Now(db, token), token);
+                    // Reading stored bytes additionally requires explicit storage rights.
+                    var rawCheckUtc = await QualityPersistence.Now(db, token);
+                    var storageRights = await policies.EvaluateAsync(raw.DataSourceId, DataPurpose.RawPayloadStorage, rawCheckUtc, manifest.Definition.Context, token);
+                    if (!storageRights.Allowed || storageRights.Restrictions.Any(r => r.MaximumRetentionDays is { } days &&
+                        rawCheckUtc - raw.RetrievedAtUtc > TimeSpan.FromDays(days))) throw new UnauthorizedAccessException();
+                    var bytes = await rawStore.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token);
+                    if (bytes.Length != length || CanonicalDatasetJson.Hash(bytes.ToArray()) != raw.ContentHashSha256)
+                    { rawVerified = false; reasons.Add("raw_corrupt"); }
+                }
+                catch (Exception error) when (error is Denied or UnauthorizedAccessException)
+                { rawAvailable = null; rawVerified = null; reasons.Add("raw_not_inspected_without_permission"); break; }
+                catch (InvalidDataException) { rawVerified = false; reasons.Add("raw_corrupt"); }
+                catch (IOException) { rawAvailable = false; rawVerified = false; reasons.Add("raw_missing_or_unreadable"); }
+            }
+        }
+        return new(id, integrity, complete, permission, reproducible, reasons.Distinct().Order(StringComparer.Ordinal).ToArray(), rawAvailable, rawVerified);
     }
 
     public async Task<DatasetComparison> CompareAsync(Guid left, Guid right, int offset, int limit, CancellationToken token = default)

@@ -48,7 +48,7 @@ public interface IFootballIngestionPersistence
 {
     Task<ImportReport> BeginAsync(Guid attemptId, Guid sourceId, CancellationToken cancellationToken);
     Task EnsureCaptureAllowedAsync(Guid sourceId, CancellationToken cancellationToken);
-    Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, CancellationToken cancellationToken);
+    Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, FootballImportScope scope, CancellationToken cancellationToken);
     Task<ImportReport> PublishAsync(ImportReport attempt, RawCapture raw, FootballImportScope scope, FootballParseResult parsed, CancellationToken cancellationToken);
     Task CompleteAsync(ImportReport report, CancellationToken cancellationToken);
 }

@@ -34,6 +34,9 @@ public static class DatasetOperatorCommand
             case "verify":
                 var verification = await datasets.VerifyAsync(Id("SnapshotId"), token); result = verification;
                 success = verification.ArtifactIntegrity && verification.EvidenceComplete && verification.CurrentlyAuthorized && verification.FeaturesReproducible; break;
+            case "verify-deep":
+                var deep = await datasets.VerifyDeepAsync(Id("SnapshotId"), token); result = deep;
+                success = deep.ArtifactIntegrity && deep.FrozenMetadataComplete && deep.CurrentUseAuthorized && deep.FeaturesReproducible && deep.RawAvailable == true && deep.RawHashVerified == true; break;
             case "compare": result = await datasets.CompareAsync(Id("LeftId"), Id("RightId"), int.Parse(Text("Offset"), CultureInfo.InvariantCulture), int.Parse(Text("Limit"), CultureInfo.InvariantCulture), token); break;
             case "interrupt": await datasets.MarkInterruptedAsync(Id("AttemptId"), Text("OperatorId"), Text("Reason"), token); result = new { Result = "InterruptionRecorded" }; break;
             default: throw new ArgumentException("Unsupported explicit dataset action.");

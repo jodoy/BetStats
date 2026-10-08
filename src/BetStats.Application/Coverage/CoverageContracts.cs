@@ -12,7 +12,9 @@ public sealed record CoverageSubmission(CoverageScope Scope, CoverageStatus Clai
 public sealed record CoverageReviewRequest(Guid EvidenceId, int ExpectedSequence, CoverageReviewStatus Status, string BasisReference, string OperatorId, string Reason);
 public sealed record CoverageQuery(CoverageScope Scope, DateTime AsOfUtc, DatasetMode Mode, DateTime? ReconstructionUtc, DataPurpose Purpose, UsageContext Context);
 public sealed record CoverageItem(CoverageEvidence Evidence, CoverageReview? Review, CoverageStatus Status, IReadOnlyList<Guid> IdentityDecisionIds,
-    IReadOnlyList<Guid> QualityIds, IReadOnlyList<string> Reasons);
+    IReadOnlyList<Guid> QualityIds, IReadOnlyList<string> Reasons,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<CoverageFact>? Facts = null);
+public sealed record CoverageFact(Guid ObservationId, DateOnly? CalendarDate, DateTime? UtcInstant);
 public sealed record CoverageReport(CoverageQuery Query, CoverageStatus Status, bool Authorized, IReadOnlyList<CoverageItem> Items,
     IReadOnlyList<CoverageInterval> UnknownIntervals, IReadOnlyList<CoverageInterval> PartialIntervals, IReadOnlyList<CoverageInterval> ConflictingIntervals,
     IReadOnlyList<ObservationType> MissingObservationTypes, IReadOnlyList<string> Reasons);
@@ -23,6 +25,9 @@ public sealed record FeatureCoverageRequirement(string FeatureName, int Version,
 public sealed record FeatureCoverageDecision(string FeatureName, FeatureCoverageOutcome Outcome, IReadOnlyList<Guid> EvidenceIds, IReadOnlyList<Guid> ReviewIds, IReadOnlyList<string> Reasons);
 public sealed record EventTimeSubmission(Guid DateObservationId, Guid RawId, EventTimeValue Value, string EvidenceReference,
     Guid? CorrectsId, DateTime? PublicationUtc, DateTime AvailableUtc, string OperatorId, string Reason);
+public sealed record EventTimeSourceClaim(int Version, Guid OriginalRawId, string ProviderEventReference,
+    FootballTimeContext Context, EventTimeValue Value);
+public sealed record FootballTimeContext(string CompetitionReference, string SeasonReference);
 public sealed record EventTimeResolution(DateTime? UtcInstant, EventTimePrecision Precision, string Reason);
 public sealed record EventTimeClaimResult(EventTimeEvidence Evidence, Guid IdentityDecisionId, Guid EventId, EventTimeResolution Resolution);
 public sealed record DatasetGovernanceRow(Guid EventId, DateTime PredictionCutoffUtc, int CoverageSchemaVersion,

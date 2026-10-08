@@ -38,7 +38,7 @@ public sealed class QualityMigrationTests
         Assert.Equal(decision.Id, (await db.IdentityResolutions.SingleAsync(d => d.ProviderIdentityId == identity.Id, timeout.Token)).Id);
         Assert.Equal(receipt, (await db.IngestionPublications.SingleAsync(timeout.Token)).Id);
         Assert.Empty(await db.QualityAssessments.ToListAsync(timeout.Token)); Assert.Empty(await db.MaintenanceEvents.ToListAsync(timeout.Token));
-        Assert.False(db.Database.HasPendingModelChanges()); Assert.Equal(8, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.False(db.Database.HasPendingModelChanges()); Assert.Equal(9, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         var indexCount = await db.Database.SqlQuery<int>($"SELECT count(*)::integer AS \"Value\" FROM pg_indexes WHERE schemaname = 'quality'").SingleAsync(timeout.Token);
         Assert.True(indexCount >= 10);
     }

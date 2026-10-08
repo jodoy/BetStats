@@ -18,6 +18,8 @@ public sealed class DatasetWorkerTests(PostgreSqlFixture fixture) : IClassFixtur
             Assert.Equal(id, inspected.RootElement.GetProperty("Id").GetGuid());
             using var verified = JsonDocument.Parse(await Invoke(["--Dataset:Action=verify", "--Dataset:SnapshotId=" + id]));
             Assert.True(verified.RootElement.GetProperty("ArtifactIntegrity").GetBoolean()); Assert.True(verified.RootElement.GetProperty("FeaturesReproducible").GetBoolean());
+            using var deep = JsonDocument.Parse(await Invoke(["--Dataset:Action=verify-deep", "--Dataset:SnapshotId=" + id]));
+            Assert.True(deep.RootElement.GetProperty("RawAvailable").GetBoolean()); Assert.True(deep.RootElement.GetProperty("RawHashVerified").GetBoolean());
             using var compared = JsonDocument.Parse(await Invoke(["--Dataset:Action=compare", "--Dataset:LeftId=" + id, "--Dataset:RightId=" + id, "--Dataset:Offset=0", "--Dataset:Limit=20"]));
             Assert.Equal(0, compared.RootElement.GetProperty("Total").GetInt32());
         }

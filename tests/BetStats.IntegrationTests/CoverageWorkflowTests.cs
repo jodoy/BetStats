@@ -137,12 +137,13 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         var date = new EventTimeValue(o.DateValue, null, null, null, null, EventTimePrecision.DateOnly);
         var first = await s.Coverage.RecordTimeAsync(new(o.Id, o.RawPayloadId!.Value, date, "original-CSV-date", null, null, o.RetrievedAtUtc, "operator:time", "Keep source date precision"));
         var before = await s.Now(); Assert.Null(Assert.Single(await s.Coverage.TimesAsync(o.ProviderIdentityId, before, DatasetMode.HistoricalAsKnown, null, DataPurpose.InternalAnalytics, new())).Resolution.UtcInstant);
-        var precise = new EventTimeValue(o.DateValue, new(12, 0), "Europe/Warsaw", null, null, EventTimePrecision.Minute); var raw = await s.Raw(precise);
+        var precise = new EventTimeValue(o.DateValue, new(12, 0), "Europe/Warsaw", null, null, EventTimePrecision.Minute); var identity = await s.Db.ProviderIdentities.SingleAsync(i => i.Id == o.ProviderIdentityId);
+        var raw = await s.Raw(new EventTimeSourceClaim(1, o.RawPayloadId!.Value, identity.ExternalId, new(s.Definition.CompetitionReference, s.Definition.SeasonReference), precise));
         var correction = await s.Coverage.RecordTimeAsync(new(o.Id, raw.Id, precise, "explicit-fictional-time-correction", first.Id, null, raw.RetrievedAtUtc, "operator:time", "Explicit correction"));
         Assert.Equal(2, correction.Version); Assert.Equal(first.Id, correction.CorrectsId);
         Assert.Equal(first.Id, Assert.Single(await s.Coverage.TimesAsync(o.ProviderIdentityId, before, DatasetMode.HistoricalAsKnown, null, DataPurpose.InternalAnalytics, new())).Evidence.Id);
         Assert.NotNull(Assert.Single(await s.Coverage.TimesAsync(o.ProviderIdentityId, await s.Now(), DatasetMode.HistoricalAsKnown, null, DataPurpose.InternalAnalytics, new())).Resolution.UtcInstant);
-        var independent = precise with { LocalDate = precise.LocalDate!.Value.AddDays(1) }; var otherRaw = await s.Raw(independent);
+        var independent = precise with { LocalDate = precise.LocalDate!.Value.AddDays(1) }; var otherRaw = await s.Raw(new EventTimeSourceClaim(1, o.RawPayloadId!.Value, identity.ExternalId, new(s.Definition.CompetitionReference, s.Definition.SeasonReference), independent));
         await s.Coverage.RecordTimeAsync(new(o.Id, otherRaw.Id, independent, "independent-reschedule-claim", null, null, otherRaw.RetrievedAtUtc, "operator:time", "Preserve conflict"));
         var results = await s.Coverage.TimesAsync(o.ProviderIdentityId, await s.Now(), DatasetMode.HistoricalAsKnown, null, DataPurpose.InternalAnalytics, new());
         Assert.Equal(2, results.Count); Assert.All(results, r => { Assert.Null(r.Resolution.UtcInstant); Assert.Equal("conflicting_event_time_claims", r.Resolution.Reason); });
@@ -276,17 +277,53 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         await using var container = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase("bs008_upgrade").WithUsername("bs008_upgrade").WithPassword(Guid.NewGuid().ToString("N")).Build();
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); await container.StartAsync(timeout.Token);
         var db = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(container.GetConnectionString()).Options);
-        await db.GetService<IMigrator>().MigrateAsync("20261008123611_DatasetSnapshotsFeatures", timeout.Token);
+        await db.Database.MigrateAsync(timeout.Token);
         await using var s = await Create(db); var first = await s.Build(s.Definition); var id = Snapshot(first);
         var artifact = await db.DatasetArtifacts.AsNoTracking().SingleAsync(a => a.Id == id); var bytes = artifact.Content.ToArray(); var recorded = artifact.RecordedAtUtc;
         var observations = await db.Observations.AsNoTracking().OrderBy(o => o.Id).Select(o => new { o.Id, o.RecordedAtUtc }).ToListAsync();
+        // v1 bytes use the original serializer. Remove only later additive schemas to recreate the BS-007 database state.
+        await db.GetService<IMigrator>().MigrateAsync("20261008123611_DatasetSnapshotsFeatures", timeout.Token);
         await db.Database.MigrateAsync(timeout.Token);
-        Assert.Equal(8, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(db.Database.HasPendingModelChanges());
+        Assert.Equal(9, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(db.Database.HasPendingModelChanges());
         Assert.Empty(await db.CoverageEvidence.ToListAsync()); Assert.Empty(await db.CoverageReviews.ToListAsync()); Assert.Empty(await db.EventTimeEvidence.ToListAsync());
         var after = await db.DatasetArtifacts.AsNoTracking().SingleAsync(a => a.Id == id); Assert.Equal(bytes, after.Content); Assert.Equal(recorded, after.RecordedAtUtc);
         Assert.Equal(observations, await db.Observations.AsNoTracking().OrderBy(o => o.Id).Select(o => new { o.Id, o.RecordedAtUtc }).ToListAsync());
         var verified = await s.Datasets.VerifyAsync(id); Assert.True(verified.ArtifactIntegrity); Assert.True(verified.FeaturesReproducible); Assert.True(verified.EvidenceComplete);
         Assert.Equal(first.ManifestHash, (await s.Build(s.Definition)).ManifestHash);
         var triggers = await db.Database.SqlQuery<int>($"SELECT count(*)::integer AS \"Value\" FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='coverage' AND NOT t.tgisinternal").SingleAsync(); Assert.Equal(6, triggers);
+    }
+    [Fact]
+    public async Task Upgrade_from_bs008_preserves_v1_and_legacy_v2_bytes_hashes_and_recording()
+    {
+        await using var container = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase("bs0081_upgrade").WithUsername("bs0081_upgrade").WithPassword(Guid.NewGuid().ToString("N")).Build();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); await container.StartAsync(timeout.Token);
+        var db = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(container.GetConnectionString()).Options);
+        await db.Database.MigrateAsync(timeout.Token); await using var s = await Create(db);
+        var v1 = Snapshot(await s.Build(s.Definition)); var currentV2 = Snapshot(await s.Build(await s.CurrentDefinition()));
+        var current = await s.Datasets.InspectAsync(currentV2);
+        // Recreate the actual BS-008 governance schema, with absent optional fact positions.
+        var legacyGovernance = new DatasetGovernance(1, current.Manifest.Governance!.Rows.Select(r => r with { CoverageSchemaVersion = 1,
+            Coverage = r.Coverage.Select(c => c with { Items = c.Items.Select(i => i with { Facts = null }).ToArray() }).ToArray() }).ToArray());
+        var legacyRows = current.Manifest.Rows.Select(r => r with { FeatureHash = CanonicalDatasetJson.Fingerprint(new FeatureArtifact(2, r.Target, r.History, r.Features,
+            legacyGovernance.Rows.Single(g => g.EventId == r.EventId && g.PredictionCutoffUtc == r.PredictionCutoffUtc))) }).ToArray();
+        var legacyManifest = current.Manifest with { Governance = legacyGovernance, Rows = legacyRows }; var bytes = CanonicalDatasetJson.Serialize(legacyManifest);
+        var legacy = new DatasetArtifact { Id = Guid.NewGuid(), Content = bytes, ManifestHash = CanonicalDatasetJson.Hash(bytes), DefinitionFingerprint = legacyManifest.DefinitionFingerprint,
+            RowCount = legacyRows.Length, FeatureSchemaVersion = 2, BuiltAtUtc = await s.Now() }; db.DatasetArtifacts.Add(legacy);
+        foreach (var row in legacyRows) db.DatasetFeatures.Add(new() { Id = Guid.NewGuid(), DatasetId = legacy.Id, EventId = row.EventId, PredictionCutoffUtc = row.PredictionCutoffUtc,
+            Fingerprint = row.FeatureHash, Content = CanonicalDatasetJson.Serialize(new FeatureArtifact(2, row.Target, row.History, row.Features,
+                legacyGovernance.Rows.Single(g => g.EventId == row.EventId && g.PredictionCutoffUtc == row.PredictionCutoffUtc))) });
+        await db.SaveChangesAsync();
+        await db.GetService<IMigrator>().MigrateAsync("20261008134149_CoverageEventTimeEvaluation", timeout.Token);
+        var before = await db.DatasetArtifacts.AsNoTracking().Where(a => a.Id == v1 || a.Id == legacy.Id).OrderBy(a => a.Id).ToListAsync();
+        var observed = await db.Observations.AsNoTracking().OrderBy(o => o.Id).Select(o => new { o.Id, o.RecordedAtUtc }).ToListAsync();
+        await db.Database.MigrateAsync(timeout.Token); Assert.False(db.Database.HasPendingModelChanges()); Assert.Empty(await db.FootballRawContexts.ToListAsync());
+        var after = await db.DatasetArtifacts.AsNoTracking().Where(a => a.Id == v1 || a.Id == legacy.Id).OrderBy(a => a.Id).ToListAsync();
+        for (var i = 0; i < before.Count; i++)
+        {
+            Assert.Equal(before[i].Content, after[i].Content); Assert.Equal(before[i].ManifestHash, after[i].ManifestHash); Assert.Equal(before[i].RecordedAtUtc, after[i].RecordedAtUtc);
+            var verified = await s.Datasets.VerifyDeepAsync(after[i].Id);
+            Assert.True(verified.ArtifactIntegrity); Assert.True(verified.FrozenMetadataComplete); Assert.True(verified.FeaturesReproducible); Assert.True(verified.RawHashVerified);
+        }
+        Assert.Equal(observed, await db.Observations.AsNoTracking().OrderBy(o => o.Id).Select(o => new { o.Id, o.RecordedAtUtc }).ToListAsync());
     }
 }
