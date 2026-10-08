@@ -59,6 +59,7 @@ The registry is deliberately small:
 | DisplayName | Sport, Competition, Season, Participant | Nonblank text, max 200 |
 | ScheduledStart | SportingEvent | UTC timestamp |
 | EventStatus | SportingEvent | SportingEventStatus enum |
+| EventDate (BS-005) | SportingEvent | Calendar DateOnly; no inferred UTC kickoff |
 
 Each row retains SourceEventTimeUtc (optional), SourcePublishedAtUtc (optional),
 RetrievedAtUtc, AvailableAtUtc, CreatedAtUtc and database-controlled RecordedAtUtc

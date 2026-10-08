@@ -2,6 +2,8 @@ using BetStats.Application.Identity;
 using BetStats.Application.Governance;
 using BetStats.Application.Providers;
 using BetStats.Application.Observations;
+using BetStats.Application.Ingestion;
+using BetStats.Infrastructure.Ingestion;
 using BetStats.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -20,6 +22,12 @@ public static class DependencyInjection
         services.AddScoped<ISourcePolicyEvaluator, SourcePolicyEvaluator>();
         services.AddScoped<ISourceOperationalStatus, SourceOperationalStatusReader>();
         services.AddScoped<AuthorizedProviderExecutor>();
+        services.AddScoped<IFootballIngestionPersistence, FootballIngestionPersistence>();
+        services.AddScoped<FootballIngestion>();
+        services.AddSingleton<IFootballMetadataParser, FootballDataCsvParser>();
+        services.AddSingleton<IRawPayloadStore>(_ => new FileSystemRawPayloadStore(configuration["Ingestion:RawStoragePath"]
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BetStats", "raw")));
+        services.AddSingleton(provider => new RequestBudget(new(10, 100, 1, TimeSpan.FromSeconds(30)), provider.GetRequiredService<TimeProvider>()));
         services.TryAddSingleton(TimeProvider.System);
         var pageCap = configuration["History:MaximumPageSize"] is { } configuredCap
             ? int.Parse(configuredCap, System.Globalization.CultureInfo.InvariantCulture) : 200;

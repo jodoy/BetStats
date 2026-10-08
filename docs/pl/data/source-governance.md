@@ -3,6 +3,8 @@
 Decyzje: [ADR 0016](../../adr/0016-source-governance-and-bounded-history.md).
 Pełne kontrakty: [dokumentacja EN](../../en/data/source-governance.md).
 Nie dodano licencji, rzeczywistych danych, poświadczeń ani klientów providerów.
+BS-005 używa tych reguł dla syntetycznej ingestii, bez zatwierdzenia realnego źródła:
+[bramki pipeline](first-football-ingestion.md).
 
 ## Cztery niezależne kwestie
 

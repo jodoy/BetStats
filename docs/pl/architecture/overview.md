@@ -10,6 +10,9 @@ Zobacz [ADR 0013](../../adr/0013-project-dependency-direction.md).
 Pipeline opisuje architekturę docelową. BS-002 dodaje PostgreSQL i metadane
 źródeł/run/RAW. BS-003 dodaje ogólny model kanoniczny i niezmienną historię
 provenance; ingestion od providerów oraz predykcje pozostają planowane.
+BS-005 implementuje teraz ingestion fixture; realny transport i predykcje pozostają
+planowane. Zobacz [ADR 0018](../../adr/0018-first-football-ingestion.md) oraz
+[pipeline i granice praw](../data/first-football-ingestion.md).
 Zobacz [ADR 0014](../../adr/0014-persistence-foundation.md) i
 [konfigurację persystencji](../data/persistence-foundation.md).
 

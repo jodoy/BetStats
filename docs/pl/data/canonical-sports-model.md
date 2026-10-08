@@ -51,6 +51,7 @@ opcjonalny utrwalony cel kanoniczny, typ i kontrolowaną wartość. Rejestr:
 | DisplayName | Sport, Competition, Season, Participant | Niepusty tekst do 200 znaków |
 | ScheduledStart | SportingEvent | Termin UTC |
 | EventStatus | SportingEvent | Enum SportingEventStatus |
+| EventDate (BS-005) | SportingEvent | DateOnly, bez odgadywania kickoffu UTC |
 
 Każdy rekord rozdziela opcjonalne SourceEventTimeUtc i SourcePublishedAtUtc od
 RetrievedAtUtc, AvailableAtUtc, CreatedAtUtc i zaufanego RecordedAtUtc DB (BS-004.1).

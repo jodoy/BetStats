@@ -14,6 +14,9 @@ Release. See [ADR 0013](../../adr/0013-project-dependency-direction.md).
 The pipeline below describes the target architecture. BS-002 adds PostgreSQL
 source/run/RAW capture metadata. BS-003 adds generic canonical entities and
 immutable provenance history; provider ingestion and prediction remain planned.
+BS-005 now implements fixture ingestion only; prediction and live provider transport
+remain planned. See [ADR 0018](../../adr/0018-first-football-ingestion.md) and the
+[licensed-boundary pipeline](../data/first-football-ingestion.md).
 See [persistence boundaries and migration ownership](../../adr/0014-persistence-foundation.md)
 and [persistence setup](../data/persistence-foundation.md).
 

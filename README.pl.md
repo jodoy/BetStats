@@ -2,7 +2,7 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-004.1 — naprawy audytu i zaufany zapis obserwacji.
+> **Status:** BS-005 — syntetyczna ingestia piłkarska; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
@@ -144,6 +144,22 @@ walidację odpowiedzi adapterów i bazodanową niezmienność RAW. Zobacz
 [naprawy audytu, migrację i retencję](docs/pl/data/audit-remediation.md)
 oraz [ADR 0017](docs/adr/0017-audit-remediation-and-trusted-observations.md).
 Czas INSERT nie gwarantuje snapshotu według COMMIT.
+
+BS-005 dodaje parser/adapter CSV fixture, filesystem RAW z SHA-256, czas zapisu DB,
+audyt ingestii, jawne mapowania, EventDate oraz receipts publikacji partii/wierszy.
+Football-Data.co.uk jest ocenionym kandydatem z ograniczeniami praw użycia, bez
+zatwierdzonej polityki i transportu HTTP. Nie ma pobierania ani ingestii przy starcie.
+Zobacz [demo, recovery i ograniczenia](docs/pl/data/first-football-ingestion.md),
+[ocenę kandydata](docs/en/data/football-data-assessment.md) i
+[ADR 0018](docs/adr/0018-first-football-ingestion.md).
+Po jawnym zastosowaniu migracji w osobnej lokalnej bazie:
+
+```sh
+dotnet run --project src/BetStats.Worker --configuration Release -- --synthetic-demo --approve-synthetic
+```
+
+Zatwierdzenie dotyczy tylko fikcyjnej fixture. RAW musi być poza repozytorium;
+plik/DB nie stanowią atomowej transakcji.
 
 ## Dokumentacja
 

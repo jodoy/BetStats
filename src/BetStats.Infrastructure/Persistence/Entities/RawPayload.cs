@@ -11,4 +11,6 @@ public sealed class RawPayload
     public required string ContentType { get; init; }
     public required string StorageKey { get; init; }
     public DateTime CreatedAtUtc { get; init; }
+    public DateTime RecordedAtUtc { get; private set; }
+    public long? ByteLength { get; init; }
 }

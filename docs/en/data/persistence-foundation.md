@@ -12,6 +12,8 @@ BS-004.1 adds database RAW immutability and a controlled privileged retention
 design; see [audit remediation](audit-remediation.md).
 BS-004 adds [source policies, audit and trusted identity availability](source-governance.md)
 in an additive migration; existing ingestion definitions remain intact.
+BS-005 adds RAW receipt/length and append-only execution/publication tables;
+see [first football ingestion](first-football-ingestion.md).
 
 ## Schema and provenance
 
