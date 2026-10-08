@@ -242,6 +242,15 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         Assert.Equal(snapshot.ManifestHash, (await s.Build(definition)).ManifestHash);
     }
     [Fact]
+    public async Task A_season_starting_on_the_prediction_day_remains_missing_and_verifiable()
+    {
+        await using var s = await Create(); var definition = await s.CurrentDefinition();
+        definition = definition with { SeasonStart = DateOnly.FromDateTime(definition.Targets[0].PredictionCutoffUtc) };
+        var snapshot = await s.Datasets.InspectAsync(Snapshot(await s.Build(definition)));
+        Assert.All(snapshot.Manifest.Rows[0].Features.Values, f => { Assert.Null(f.Value); Assert.NotNull(f.MissingReason); });
+        var verified = await s.Datasets.VerifyAsync(snapshot.Id); Assert.True(verified.ArtifactIntegrity); Assert.True(verified.FeaturesReproducible);
+    }
+    [Fact]
     public async Task Policy_revocation_denies_reports_time_and_v2_inspection()
     {
         await using var s = await Create(); var id = Snapshot(await s.Build(await s.CurrentDefinition())); var claim = await s.Claim(s.Scope(), CoverageStatus.VerifiedComplete); await s.Approve(claim);

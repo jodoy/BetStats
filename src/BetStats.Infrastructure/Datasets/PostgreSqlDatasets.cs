@@ -319,8 +319,11 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                 var governed = governance.Rows.Single(r => r.EventId == row.EventId && r.PredictionCutoffUtc == row.PredictionCutoffUtc);
                 foreach (var feature in FootballMetadataFeatures.Catalog)
                 {
+                    var day = DateOnly.FromDateTime(row.PredictionCutoffUtc);
+                    var windowStart = feature.LookbackDays is { } lookback ? day.AddDays(-lookback) : manifest.Definition.SeasonStart;
+                    if (windowStart >= day) windowStart = day.AddDays(-1);
                     var relevant = governed.Coverage.Where(r => r.Query.Scope.ParticipantId == (feature.Name.StartsWith("home", StringComparison.Ordinal) ? row.Target.HomeId : row.Target.AwayId) &&
-                        r.Query.Scope.Interval.StartDate == (feature.LookbackDays is { } days ? DateOnly.FromDateTime(row.PredictionCutoffUtc).AddDays(-days) : manifest.Definition.SeasonStart)).ToArray();
+                        r.Query.Scope.Interval.StartDate == windowStart).ToArray();
                     if (CanonicalDatasetJson.Fingerprint(CoverageRules.Gate(FootballMetadataFeatures.Requirement(feature), relevant)) !=
                         CanonicalDatasetJson.Fingerprint(governed.Gates.Single(g => g.FeatureName == feature.Name))) reproducible = false;
                 }
