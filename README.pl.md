@@ -2,7 +2,7 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-009 — fikcyjne wyniki piłkarskie, historyczne etykiety, obserwowane cechy wynikowe i Swagger w Development; realny provider pozostaje wyłączony.
+> **Status:** BS-010 — niezależne pokrycie fikcyjnych wyników, trwałe operacje i recovery v3 oraz jawny koniec wydarzenia; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
@@ -22,6 +22,11 @@ Dokumentacja działa tylko w Development. Publiczne odczyty: liveness i własny 
 [Integralność historyczna, konfiguracja i granice API](docs/pl/data/historical-integrity-development-api.md).
 
 ## Granica produktu
+
+[BS-010: pokrycie wyników, operacje v3, recovery i koniec wydarzenia](docs/pl/data/result-coverage-operations-event-end.md)
+opisuje jawne polecenia Development i migrację. Kompletność wymaga niezależnego
+dowodu; ewaluacja pozostaje kontraktem, bez treningu i scoringu.
+[ADR 0024](docs/adr/0024-result-coverage-operations-and-event-end.md).
 
 [BS-009: wyniki, etykiety, zbiory v3 i fikcyjne API](docs/pl/data/football-results-outcomes.md)
 opisuje jawne demo i addytywną migrację. Statystyki dotyczą częściowej historii;

@@ -13,15 +13,19 @@ builder.Services.AddPersistence(builder.Configuration);
 using var host = builder.Build();
 if (builder.Configuration["Results:Action"] is { } resultAction)
 {
-    if (!builder.Environment.IsDevelopment() || resultAction != "demo" || demo || builder.Configuration["Coverage:Action"] is not null ||
+    if (!builder.Environment.IsDevelopment() || demo || builder.Configuration["Coverage:Action"] is not null ||
         builder.Configuration["Quality:Action"] is not null || builder.Configuration["Dataset:Action"] is not null)
         throw new ArgumentException("Choose the explicit Development-only results demo action.");
     using var scope = host.Services.CreateScope();
     using var cancellation = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
-    var reports = await SyntheticFootballResultsDemo.RunAsync(scope.ServiceProvider, approve, cancellation.Token);
-    Console.WriteLine(JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true }));
-    Environment.ExitCode = reports.Any(r => r.Outcome is not (ImportOutcome.Succeeded or ImportOutcome.Reused)) ? 1 : 0;
+    if (resultAction == "demo")
+    {
+        var reports = await SyntheticFootballResultsDemo.RunAsync(scope.ServiceProvider, approve, cancellation.Token);
+        Console.WriteLine(JsonSerializer.Serialize(reports, new JsonSerializerOptions { WriteIndented = true }));
+        Environment.ExitCode = reports.Any(r => r.Outcome is not (ImportOutcome.Succeeded or ImportOutcome.Reused)) ? 1 : 0;
+    }
+    else Environment.ExitCode = await BetStats.Infrastructure.Football.ResultOperatorCommand.RunAsync(scope.ServiceProvider, builder.Configuration, true, cancellation.Token);
 }
 else if (builder.Configuration["Coverage:Action"] is not null)
 {

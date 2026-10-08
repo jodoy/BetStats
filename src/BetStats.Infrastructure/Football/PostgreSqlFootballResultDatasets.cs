@@ -7,17 +7,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BetStats.Infrastructure.Football;
 
-public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IDatasets metadata, IFootballResults results) : IFootballResultDatasets
+public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IDatasets metadata, IFootballResults results, IResultGovernance? governance = null) : IFootballResultDatasets
 {
     private static IEnumerable<FootballResultEvidence> Evidence(FootballResultManifest m) => m.Rows.SelectMany(r => r.FeatureEvidence.Results.Concat(r.LabelEvidence.Results));
     private static string FeatureHash(FootballResultDatasetRow row) => CanonicalDatasetJson.Fingerprint(new { SchemaVersion = 3, row.Metadata.Target,
         row.Metadata.PredictionCutoffUtc, row.FeatureEvidence, row.Features });
-    public async Task<FootballResultSnapshot> BuildAsync(FootballResultDatasetRequest request, CancellationToken token = default)
+    public Task<FootballResultSnapshot> BuildAsync(FootballResultDatasetRequest request, CancellationToken token = default) => BuildCoreAsync(request, false, null, token);
+    internal async Task<FootballResultSnapshot> BuildCoreAsync(FootballResultDatasetRequest request, bool includeGovernance,
+        Func<Guid, CancellationToken, Task>? finalize, CancellationToken token)
     {
         var d = request.Metadata.Definition; d.Validate();
         if (d.Version != 2 || request.LabelAsOfUtc.Kind != DateTimeKind.Utc || request.LabelAsOfUtc.Ticks % 10 != 0 ||
             request.LabelAsOfUtc > d.AsOfUtc || d.Targets.Any(t => request.LabelAsOfUtc < t.PredictionCutoffUtc)) throw new ArgumentException("Metadata v2 and explicit label cutoff between prediction and dataset AsOf required.");
         var build = await metadata.BuildAsync(request.Metadata, token);
+        token.ThrowIfCancellationRequested();
         if (build.Status != DatasetBuildStatus.Succeeded || build.SnapshotId is null) throw new InvalidOperationException("Metadata assembly denied: " + build.FailureCode);
         var baseline = await metadata.InspectAsync(build.SnapshotId.Value, token);
         FootballResultManifest manifest;
@@ -39,6 +42,7 @@ public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IData
                 rows.Add(entry with { FeatureHash = FeatureHash(entry) });
             }
             manifest = new(3, 3, 1, baseline.Manifest, baseline.ManifestHash, request.LabelAsOfUtc, rows);
+            if (includeGovernance) manifest = manifest with { ResultGovernance = await (governance ?? throw new InvalidOperationException("Result governance adapter required.")).FreezeAsync(manifest, token) };
             await tx.CommitAsync(token);
         }
         var content = CanonicalDatasetJson.Serialize(manifest); var hash = CanonicalDatasetJson.Hash(content);
@@ -53,6 +57,7 @@ public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IData
         if (metadata is not BetStats.Infrastructure.Datasets.PostgreSqlDatasets frozenMetadata) throw new InvalidOperationException("Transactional metadata adapter required.");
         await frozenMetadata.EnsureCurrentFrozenAsync(baseline.Manifest, token);
         await results.EnsureCurrentAsync(Evidence(manifest), d.Purpose, d.Context, token);
+        if (manifest.ResultGovernance is { } frozenGovernance) await governance!.EnsureCurrentAsync(frozenGovernance, manifest, token);
         var existing = await db.FootballResultArtifacts.AsNoTracking().SingleOrDefaultAsync(a => a.Hash == hash, token);
         if (existing is not null && !existing.Content.AsSpan().SequenceEqual(content)) throw new InvalidDataException("Result content key mismatch.");
         if (existing is null)
@@ -60,6 +65,7 @@ public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IData
             existing = new() { Id = Guid.NewGuid(), MetadataSnapshotId = baseline.Id, Hash = hash, Content = content };
             db.Add(existing); await db.SaveChangesAsync(token);
         }
+        if (finalize is not null) await finalize(existing.Id, token);
         await publication.CommitAsync(token); return new(existing.Id, hash, manifest);
     }
     public async Task<FootballResultSnapshot> InspectAsync(Guid id, CancellationToken token = default)
@@ -71,6 +77,7 @@ public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IData
         if (baseline.ManifestHash != m.MetadataManifestHash || CanonicalDatasetJson.Fingerprint(m.MetadataManifest) != m.MetadataManifestHash) throw new InvalidDataException("Frozen metadata reference mismatch.");
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
         await results.EnsureCurrentAsync(Evidence(m), m.MetadataManifest.Definition.Purpose, m.MetadataManifest.Definition.Context, token);
+        if (m.ResultGovernance is { } g) await (governance ?? throw new InvalidOperationException("Result governance adapter required.")).EnsureCurrentAsync(g, m, token);
         await tx.CommitAsync(token); return new(id, artifact.Hash, m);
     }
     public async Task<FootballResultVerification> VerifyAsync(Guid id, CancellationToken token = default)
@@ -83,9 +90,13 @@ public sealed class PostgreSqlFootballResultDatasets(BetStatsDbContext db, IData
             CanonicalDatasetJson.Fingerprint(r.LabelEvidence.Results.Where(e => e.Eligible).Select(e => FootballOutcomes.Derive(e.Observation)).Where(e => e is not null).OrderBy(e => e!.ResultObservationId).ToArray()) == CanonicalDatasetJson.Fingerprint(r.Labels));
         var baseline = await metadata.VerifyAsync(a.MetadataSnapshotId, token);
         integrity &= baseline.ArtifactIntegrity; reproducible &= baseline.FeaturesReproducible;
+        if (m.ResultGovernance is { } g) integrity &= governance is not null && await governance.VerifyFrozenAsync(g, token);
         var authorized = baseline.CurrentlyAuthorized;
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
-        try { await results.EnsureCurrentAsync(Evidence(m), m.MetadataManifest.Definition.Purpose, m.MetadataManifest.Definition.Context, token); }
+        try {
+            await results.EnsureCurrentAsync(Evidence(m), m.MetadataManifest.Definition.Purpose, m.MetadataManifest.Definition.Context, token);
+            if (m.ResultGovernance is { } current) await governance!.EnsureCurrentAsync(current, m, token);
+        }
         catch (UnauthorizedAccessException) { authorized = false; }
         await tx.CommitAsync(token);
         return new(integrity, reproducible, authorized);

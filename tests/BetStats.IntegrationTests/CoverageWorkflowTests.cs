@@ -284,13 +284,13 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         // v1 bytes use the original serializer. Remove only later additive schemas to recreate the BS-007 database state.
         await db.GetService<IMigrator>().MigrateAsync("20261008123611_DatasetSnapshotsFeatures", timeout.Token);
         await db.Database.MigrateAsync(timeout.Token);
-        Assert.Equal(10, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(db.Database.HasPendingModelChanges());
+        Assert.Equal(11, (await db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(db.Database.HasPendingModelChanges());
         Assert.Empty(await db.CoverageEvidence.ToListAsync()); Assert.Empty(await db.CoverageReviews.ToListAsync()); Assert.Empty(await db.EventTimeEvidence.ToListAsync());
         var after = await db.DatasetArtifacts.AsNoTracking().SingleAsync(a => a.Id == id); Assert.Equal(bytes, after.Content); Assert.Equal(recorded, after.RecordedAtUtc);
         Assert.Equal(observations, await db.Observations.AsNoTracking().OrderBy(o => o.Id).Select(o => new { o.Id, o.RecordedAtUtc }).ToListAsync());
         var verified = await s.Datasets.VerifyAsync(id); Assert.True(verified.ArtifactIntegrity); Assert.True(verified.FeaturesReproducible); Assert.True(verified.EvidenceComplete);
         Assert.Equal(first.ManifestHash, (await s.Build(s.Definition)).ManifestHash);
-        var triggers = await db.Database.SqlQuery<int>($"SELECT count(*)::integer AS \"Value\" FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='coverage' AND NOT t.tgisinternal").SingleAsync(); Assert.Equal(6, triggers);
+        var triggers = await db.Database.SqlQuery<int>($"SELECT count(*)::integer AS \"Value\" FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='coverage' AND NOT t.tgisinternal").SingleAsync(); Assert.Equal(10, triggers);
     }
     [Fact]
     public async Task Upgrade_from_bs008_preserves_v1_and_legacy_v2_bytes_hashes_and_recording()

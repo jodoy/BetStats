@@ -1,6 +1,7 @@
 using BetStats.Application.Coverage;
 using BetStats.Domain.Quality;
 using BetStats.Domain.Coverage;
+using BetStats.Domain.Football;
 
 namespace BetStats.Application.Evaluation;
 
@@ -34,12 +35,15 @@ public sealed record EvaluationDefinition(int Version, Guid SportId, EvaluationT
         }
     }
 }
-public sealed record EvaluationEligibility(bool Eligible, bool Retrospective, IReadOnlyList<string> Reasons)
+public sealed record EvaluationEligibility(bool Eligible, bool Retrospective, IReadOnlyList<string> Reasons,
+    [property: System.Text.Json.Serialization.JsonIgnore] int SchemaVersion = 2)
 {
-    public int ContractVersion => 2;
+    public int ContractVersion => SchemaVersion;
 }
 public sealed record EvaluationEventEvidence(Guid EventId, Guid EvidenceId, Guid IdentityDecisionId,
     EventTimeValue Value, bool SourceBound, DateTime AvailableUtc, DateTime RecordedUtc, string? CalendarBasis);
+public sealed record EvaluationEndEvidence(Guid EventId, Guid ResultObservationId, Guid EvidenceId, Guid IdentityDecisionId,
+    EventTimeValue Value, bool SourceBound, bool Eligible, DateTime AvailableUtc, DateTime RecordedUtc, int Version);
 public static class EvaluationContracts
 {
     public static IReadOnlyList<EvaluationMetricDefinition> Metrics { get; } = [
@@ -52,7 +56,8 @@ public static class EvaluationContracts
         evidence.Version > 0 && evidence.AvailableUtc.Kind == DateTimeKind.Utc && evidence.RecordedUtc.Kind == DateTimeKind.Utc &&
         predictionCutoff.Kind == DateTimeKind.Utc && evidence.AvailableUtc <= predictionCutoff && evidence.RecordedUtc <= predictionCutoff;
     public static EvaluationEligibility Eligibility(EvaluationDefinition definition, DateTime predictionCutoff, DateTime featureAvailable, DateTime featureRecorded,
-        OutcomeAvailability label, DateTime evaluationCutoff, bool authorized, FeatureCoverageDecision coverage, EvaluationEventEvidence? eventEvidence = null)
+        OutcomeAvailability label, DateTime evaluationCutoff, bool authorized, FeatureCoverageDecision coverage, EvaluationEventEvidence? eventEvidence = null,
+        EvaluationEndEvidence? endEvidence = null, ResultCoverageStatus? resultCoverage = null)
     {
         definition.Validate(); var reasons = new List<string>();
         if (new[] { predictionCutoff, featureAvailable, featureRecorded, label.AvailableUtc, label.RecordedUtc, evaluationCutoff }.Any(t => t.Kind != DateTimeKind.Utc || t.Ticks % 10 != 0) ||
@@ -91,6 +96,26 @@ public static class EvaluationContracts
         if (!authorized) reasons.Add("source_permission_denied");
         if (coverage.Outcome != FeatureCoverageOutcome.Eligible) reasons.Add("complete_evaluation_coverage_required");
         if (label.Version > definition.Version) reasons.Add("outcome_correction_requires_new_evaluation_version");
-        return new(reasons.Count == 0, definition.Mode == DatasetMode.RetrospectiveReconstruction, reasons);
+        if (definition.Version >= 3)
+        {
+            if (resultCoverage is not ResultCoverageStatus.Complete) reasons.Add("independent_complete_result_coverage_required");
+            if (endEvidence is null || !endEvidence.SourceBound || !endEvidence.Eligible || endEvidence.EventId != eventEvidence?.EventId ||
+                endEvidence.ResultObservationId != label.EvidenceId || endEvidence.EvidenceId == Guid.Empty || endEvidence.IdentityDecisionId == Guid.Empty || endEvidence.Version < 1)
+                reasons.Add("justified_event_end_evidence_missing");
+            else
+            {
+                var end = EventTimeRules.Resolve(endEvidence.Value);
+                if (endEvidence.AvailableUtc.Kind != DateTimeKind.Utc || endEvidence.RecordedUtc.Kind != DateTimeKind.Utc ||
+                    endEvidence.AvailableUtc.Ticks % 10 != 0 || endEvidence.RecordedUtc.Ticks % 10 != 0 ||
+                    endEvidence.AvailableUtc > evaluationCutoff || endEvidence.RecordedUtc > evaluationCutoff)
+                    reasons.Add("event_end_not_known_at_evaluation");
+                if (end.UtcInstant is not { } finished || endEvidence.Value.Precision is not (EventTimePrecision.Minute or EventTimePrecision.Second))
+                    reasons.Add("precise_event_end_required");
+                else if (finished <= predictionCutoff || finished > label.AvailableUtc || finished > endEvidence.AvailableUtc || boundary is { } beginning && finished <= beginning)
+                    reasons.Add("event_end_temporal_conflict");
+                if (endEvidence.Version > definition.Version) reasons.Add("event_end_correction_requires_new_evaluation_version");
+            }
+        }
+        return new(reasons.Count == 0, definition.Mode == DatasetMode.RetrospectiveReconstruction, reasons, definition.Version >= 3 ? 3 : 2);
     }
 }
