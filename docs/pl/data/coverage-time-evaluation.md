@@ -37,6 +37,7 @@ Cztery cechy BS-007 zachowują nazwy i semantykę częściowej historii obserwow
 Deklarują typy, okno, uczestnika, status Completed, jakość v1 i wymagane pokrycie.
 Brak nie staje się zerem; sprzeczne, wygasłe lub niedozwolone pokrycie blokuje wartości.
 Manifest/cechy/definicja v2 utrwalają dowody, decyzje, precyzję, bramki i niepewność.
+Obejmuje to czasy celu i istotnych zdarzeń historycznych, najwyżej 200 twierdzeń na wiersz.
 V1 zachowuje oryginalne bajty i hashe; nowe dowody tworzą nowy artefakt przy nowym
 cutoffie lub jawnym R. Migracja `20261008134149_CoverageEventTimeEvaluation` dodaje trzy
 tabele i sześć triggerów, bez zmiany opublikowanych migracji i historii BS-007.

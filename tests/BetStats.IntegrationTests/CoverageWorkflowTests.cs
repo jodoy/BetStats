@@ -228,6 +228,20 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         foreach (var snapshotId in new[] { oldId, id, newer.Id }) { var verified = await s.Datasets.VerifyAsync(snapshotId); Assert.True(verified.ArtifactIntegrity); Assert.True(verified.EvidenceComplete); Assert.True(verified.FeaturesReproducible); }
     }
     [Fact]
+    public async Task V2_freezes_target_and_historical_time_claims_without_inventing_kickoff()
+    {
+        await using var s = await Create();
+        var dates = await s.Db.Observations.Where(o => o.DataSourceId == s.Source && o.Type == ObservationType.EventDate &&
+            (o.Id == s.Definition.Targets[0].DateObservationId || o.DateValue == new DateOnly(2026, 1, 2))).ToListAsync(); Assert.Equal(2, dates.Count);
+        foreach (var o in dates) await s.Coverage.RecordTimeAsync(new(o.Id, o.RawPayloadId!.Value, new(o.DateValue, null, null, null, null, EventTimePrecision.DateOnly),
+            "fictional-source-date", null, null, o.RetrievedAtUtc, "operator:time", "Capture explicit DateOnly precision"));
+        var definition = await s.CurrentDefinition(); var id = Snapshot(await s.Build(definition));
+        var snapshot = await s.Datasets.InspectAsync(id); var governance = Assert.Single(snapshot.Manifest.Governance!.Rows); Assert.Equal(2, governance.EventTimes.Count);
+        Assert.All(governance.EventTimes, t => { Assert.Null(t.Resolution.UtcInstant); Assert.Equal(EventTimePrecision.DateOnly, t.Resolution.Precision); });
+        Assert.Null(governance.DateObservationPrecision.UtcInstant); Assert.True((await s.Datasets.VerifyAsync(id)).EvidenceComplete);
+        Assert.Equal(snapshot.ManifestHash, (await s.Build(definition)).ManifestHash);
+    }
+    [Fact]
     public async Task Policy_revocation_denies_reports_time_and_v2_inspection()
     {
         await using var s = await Create(); var id = Snapshot(await s.Build(await s.CurrentDefinition())); var claim = await s.Claim(s.Scope(), CoverageStatus.VerifiedComplete); await s.Approve(claim);

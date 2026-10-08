@@ -286,7 +286,12 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             }
             gates.Add(CoverageRules.Gate(FootballMetadataFeatures.Requirement(feature), selected));
         }
-        var times = await TimesAsync(row.Target.ProviderIdentityId, row.PredictionCutoffUtc, definition.Mode, definition.ReconstructionAtUtc, definition.Purpose, definition.Context, token);
+        var times = new List<EventTimeClaimResult>();
+        foreach (var identity in row.History.Append(row.Target).Select(e => e.ProviderIdentityId).Distinct().Order())
+        {
+            times.AddRange(await TimesAsync(identity, row.PredictionCutoffUtc, definition.Mode, definition.ReconstructionAtUtc, definition.Purpose, definition.Context, token));
+            if (times.Count > 200) throw new InvalidOperationException("Dataset event-time evidence bound exceeded.");
+        }
         var frozen = new List<DatasetFrozenRecord>();
         void Freeze<T>(string kind, Guid id, T value) => frozen.Add(new(kind, id, Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(value))));
         foreach (var item in reports.SelectMany(r => r.Items).DistinctBy(i => i.Evidence.Id))
@@ -300,7 +305,7 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             Freeze("coverage-policy", id, Policy(await db.SourcePolicies.AsNoTracking().Include(p => p.Permissions).SingleAsync(v => v.Id == id, token)));
         var rawIds = reports.SelectMany(r => r.Items).Select(i => i.Evidence.RawId).Concat(times.Select(t => t.Evidence.RawId)).Distinct().Order().ToArray();
         foreach (var id in rawIds) Freeze("raw", id, await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == id, token));
-        return new(row.EventId, row.PredictionCutoffUtc, 1, reports, gates, times, new(null, EventTimePrecision.DateOnly, "date_only_observation_no_kickoff"),
+        return new(row.EventId, row.PredictionCutoffUtc, 1, reports, gates, times.OrderBy(t => t.EventId).ThenBy(t => t.Evidence.Id).ToArray(), new(null, EventTimePrecision.DateOnly, "date_only_observations_no_kickoff"),
             frozen.OrderBy(f => f.Kind, StringComparer.Ordinal).ThenBy(f => f.Id).ToArray());
     }
     public async Task<bool> VerifyFrozenAsync(DatasetGovernance governance, CancellationToken token = default)

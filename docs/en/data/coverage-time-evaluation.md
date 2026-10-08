@@ -58,7 +58,8 @@ features; conflicting/expired/unauthorized evidence blocks values. No missing va
 converted to zero. Strong coverage does not rename observed counts into true activity.
 
 Definition/feature/manifest v2 freezes coverage claims and versions, reviews, identity,
-quality, policy, RAW, gates, precision, uncertainties and schema v1 rules. v1 extensions
+quality, policy, RAW, gates, precision, uncertainties and schema v1 rules, including
+time claims for the target and relevant historical events (at most 200 per row). v1 extensions
 are omitted from canonical JSON: original bytes/hashes/calculators remain supported.
 New evidence is visible only at a new cutoff (or explicit R) and creates a new immutable
 artifact. Rebuilding an unchanged definition yields the same content hash. Dataset
