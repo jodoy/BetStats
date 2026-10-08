@@ -237,6 +237,18 @@ public sealed class DatasetWorkflowTests(PostgreSqlFixture fixture) : IClassFixt
         var verification = await s.Service().VerifyAsync(corrupt.Id); Assert.False(verification.ArtifactIntegrity); Assert.False(verification.FeaturesReproducible);
         Assert.True((await s.Service().VerifyAsync(id)).ArtifactIntegrity);
     }
+    [Theory]
+    [InlineData("{}")][InlineData("not-json")]
+    public async Task Malformed_artifact_returns_structured_failure_without_reading_evidence(string content)
+    {
+        await using var s = await Create(); var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+        var corrupt = new DatasetArtifact { Id = Guid.NewGuid(), DefinitionFingerprint = CanonicalDatasetJson.Fingerprint(s.Definition),
+            ManifestHash = CanonicalDatasetJson.Hash(bytes), Content = bytes, RowCount = 1, FeatureSchemaVersion = 1, BuiltAtUtc = await s.Now() };
+        s.Db.DatasetArtifacts.Add(corrupt); await s.Db.SaveChangesAsync();
+        var result = await s.Service().VerifyAsync(corrupt.Id);
+        Assert.False(result.ArtifactIntegrity); Assert.False(result.EvidenceComplete); Assert.False(result.CurrentlyAuthorized); Assert.False(result.FeaturesReproducible);
+        Assert.Contains("artifact_unreadable", result.Reasons);
+    }
     [Fact]
     public async Task Tampered_raw_prevents_a_successful_build_and_records_failure()
     {

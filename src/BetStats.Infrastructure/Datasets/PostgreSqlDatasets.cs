@@ -244,7 +244,18 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
     {
         if (id == Guid.Empty) throw new ArgumentException("Snapshot ID required.");
         var artifact = await db.DatasetArtifacts.AsNoTracking().SingleAsync(a => a.Id == id, token);
-        return (artifact, CanonicalDatasetJson.Deserialize<DatasetManifest>(artifact.Content));
+        var manifest = CanonicalDatasetJson.Deserialize<DatasetManifest>(artifact.Content);
+        if (manifest.Definition is null || manifest.Rows is null || manifest.Rows.Count is < 1 or > 100 || manifest.QualityRuleVersions is null ||
+            manifest.Rows.Any(r => r is null || r.Target is null || r.History is null || r.History.Count > 1000 || r.Excluded is null || r.Excluded.Count > 1000 ||
+                r.Features is null || r.Features.Values is null || r.Features.Values.Count != FootballMetadataFeatures.Catalog.Count))
+            throw new InvalidDataException("Invalid bounded manifest structure.");
+        foreach (var e in Evidence(manifest))
+            if (e is null || e.FrozenRecords is null || e.ContextIdentityIds is null || e.DecisionIds is null || e.QualityAssessmentIds is null || e.Policies is null ||
+                e.Policies.Any(p => p is null || p.AuditIds is null) || e.FrozenRecords.Any(f => f is null || f.CanonicalJson is null))
+                throw new InvalidDataException("Invalid frozen evidence structure.");
+        try { manifest.Definition.Validate(); }
+        catch (ArgumentException error) { throw new InvalidDataException("Unsupported manifest definition.", error); }
+        return (artifact, manifest);
     }
     public async Task<DatasetSnapshot> InspectAsync(Guid id, CancellationToken token = default)
     {

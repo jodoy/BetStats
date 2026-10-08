@@ -23,7 +23,7 @@ public sealed record DatasetDefinition(int Version, Guid SportId, Guid Competiti
             InclusionRule != "eligible-observed-metadata-v1" || ExclusionRule != "fail-closed-v1" ||
             Context is null || Context.IntendedRetentionDays is <= 0 ||
             Purpose is not (DataPurpose.InternalAnalytics or DataPurpose.ModelTraining or DataPurpose.PublicDisplay or DataPurpose.CommercialUse or DataPurpose.Redistribution) ||
-            Targets is null || Targets.Count is < 1 or > 100 || Targets.Select(t => t.DateObservationId).Distinct().Count() != Targets.Count ||
+            Targets is null || Targets.Count is < 1 or > 100 || Targets.Any(t => t is null) || Targets.Select(t => t.DateObservationId).Distinct().Count() != Targets.Count ||
             Targets.Any(t => t.DateObservationId == Guid.Empty || !Utc(t.PredictionCutoffUtc) || t.PredictionCutoffUtc > AsOfUtc) ||
             Mode == DatasetMode.HistoricalAsKnown && ReconstructionAtUtc is not null ||
             Mode == DatasetMode.RetrospectiveReconstruction && (ReconstructionAtUtc is not { } r || !Utc(r) || r < AsOfUtc))
