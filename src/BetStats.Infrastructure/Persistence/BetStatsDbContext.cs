@@ -1,3 +1,6 @@
+using BetStats.Domain.Identity;
+using BetStats.Domain.Observations;
+using BetStats.Domain.Sports;
 using BetStats.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +11,15 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     public DbSet<DataSource> DataSources => Set<DataSource>();
     public DbSet<IngestionRun> IngestionRuns => Set<IngestionRun>();
     public DbSet<RawPayload> RawPayloads => Set<RawPayload>();
+    public DbSet<Sport> Sports => Set<Sport>();
+    public DbSet<Competition> Competitions => Set<Competition>();
+    public DbSet<Season> Seasons => Set<Season>();
+    public DbSet<Participant> Participants => Set<Participant>();
+    public DbSet<SportingEvent> SportingEvents => Set<SportingEvent>();
+    public DbSet<EventParticipant> EventParticipants => Set<EventParticipant>();
+    public DbSet<ProviderIdentity> ProviderIdentities => Set<ProviderIdentity>();
+    public DbSet<IdentityResolution> IdentityResolutions => Set<IdentityResolution>();
+    public DbSet<Observation> Observations => Set<Observation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,6 +78,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
             .OnDelete(DeleteBehavior.Restrict);
         payloads.HasIndex(payload => new { payload.DataSourceId, payload.RetrievedAtUtc });
         payloads.HasIndex(payload => payload.ContentHashSha256);
+        CanonicalModelConfiguration.Configure(modelBuilder);
+        ProvenanceModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -88,6 +102,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
             {
                 throw new InvalidOperationException("RAW capture metadata is append-only; updates and deletes require an explicit retention process.");
             }
+            if (entry.Entity is ProviderIdentity or IdentityResolution or Observation && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Identity and observation history is append-only.");
             if (entry.State is not (EntityState.Added or EntityState.Modified))
             {
                 continue;

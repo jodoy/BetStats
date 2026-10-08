@@ -2,9 +2,11 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-002 persistence foundation. API liveness, Web placeholder and
-> Worker host are present, with PostgreSQL ingestion metadata and EF migrations.
-> Sports, predictions, authentication and localization are not implemented yet.
+> **Status:** BS-003 canonical sports and temporal observation foundation.
+> PostgreSQL stores ingestion metadata, generic multi-sport entities, explicit
+> identity decisions and immutable observations. API liveness, Web placeholder
+> and Worker host remain minimal. Providers, statistics, predictions,
+> authentication and localization remain planned.
 
 ## Product boundary
 
@@ -84,9 +86,9 @@ docs/
 
 | Project | Responsibility | Allowed project dependencies |
 | --- | --- | --- |
-| Domain | Future domain rules; currently empty | None |
-| Application | Future use cases and ports; currently empty | Domain |
-| Infrastructure | PostgreSQL metadata, DbContext, mappings and migrations | Application, Domain |
+| Domain | Canonical entities, identity and observation invariants | None |
+| Application | Historical observation and identity decision query contracts | Domain |
+| Infrastructure | PostgreSQL metadata, canonical/provenance mappings, adapters and migrations | Application, Domain |
 | Api | ASP.NET Core composition root; `/health/live` | Application, Infrastructure, Domain |
 | Worker | Generic Host composition root | Application, Infrastructure, Domain |
 | Web | ASP.NET Core presentation placeholder | Application, Domain |
@@ -95,15 +97,15 @@ Allowed dependencies are not required references. The existing minimal reference
 set is preserved. API and Worker wire infrastructure; Web does not reference
 Infrastructure or persistence implementations. See [ADR 0013](docs/adr/0013-project-dependency-direction.md).
 
-`BetStats.UnitTests` references Domain and Application for future unit tests.
-Current tests exercise configuration precedence for the Generic Host and web
-builders without running servers. No business logic exists in those layers yet.
+`BetStats.UnitTests` covers Domain/Application invariants, conservative availability,
+UTC and correction rules, plus configuration precedence for host builders.
 `BetStats.ArchitectureTests` evaluates the source projects through MSBuild in
 Debug and Release, rejects forbidden edges, cycles, unregistered projects,
 binary reference bypasses and direct persistence packages outside Infrastructure.
 Run these tests from a source checkout with the .NET SDK installed.
-`BetStats.IntegrationTests` verifies the schema and persistence on real PostgreSQL,
-plus registration without startup database access. All three suites run with
+`BetStats.IntegrationTests` verifies fresh/BS-002 upgrade migrations, relational
+constraints, append-only history, corrections and negative temporal leakage cases
+on real PostgreSQL, plus registration without startup database access. All suites run with
 `dotnet test BetStats.slnx`; Docker is required and integration failures are not skipped.
 
 CI runs restore, Release build, unit tests, architecture tests and PostgreSQL
@@ -174,6 +176,16 @@ Retention must later coordinate licensed payload storage and metadata through an
 explicit audited process; no automatic purge is implemented.
 See [complete setup, migration and retention instructions](docs/en/data/persistence-foundation.md)
 and [ADR 0014](docs/adr/0014-persistence-foundation.md).
+
+BS-003 adds six `canonical` tables and three `provenance` tables, preserving the
+initial migration and ingestion rows. Canonical UUIDs are independent of source IDs.
+Four reference sports are seeded; all other data in tests is synthetic.
+Observation history filters `AvailableAtUtc <= AsOfUtc` and orders by availability,
+creation time and UUID. Corrections append new rows and later identity decisions
+do not remap earlier observations. Current canonical tables are not historical evidence.
+See the [data model and ER diagram](docs/en/data/canonical-sports-model.md),
+[query examples and limitations](docs/en/data/canonical-sports-model.md#historical-query-contract)
+and [ADR 0015](docs/adr/0015-canonical-identity-and-temporal-observations.md).
 
 ## Documentation
 

@@ -6,6 +6,11 @@ EF Core 10 and the Npgsql provider belong to Infrastructure. API and Worker call
 There is no startup migration, `EnsureCreated`, ingestion job or generic repository.
 See [ADR 0014](../../adr/0014-persistence-foundation.md).
 
+This page documents the BS-002 ingestion layer. BS-003 adds independent canonical
+and provenance schemas; see the [canonical model and historical query contract](canonical-sports-model.md).
+The RAW guard limitations below still apply to ingestion metadata; the new
+provenance tables additionally have database immutability triggers.
+
 ## Schema and provenance
 
 Tables are in the `ingestion` schema; EF migration history is in `public`.

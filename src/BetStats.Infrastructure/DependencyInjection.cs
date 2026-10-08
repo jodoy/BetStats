@@ -1,3 +1,5 @@
+using BetStats.Application.Identity;
+using BetStats.Application.Observations;
 using BetStats.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -9,6 +11,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddScoped<IObservationHistory, ObservationHistory>();
+        services.AddScoped<IIdentityResolutionHistory, IdentityResolutionHistory>();
         services.AddDbContext<BetStatsDbContext>(options =>
         {
             var connectionString = configuration.GetConnectionString("BetStats");
