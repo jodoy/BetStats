@@ -11,7 +11,15 @@ var approve = args.Contains("--approve-synthetic", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a is not ("--synthetic-demo" or "--approve-synthetic")).ToArray());
 builder.Services.AddPersistence(builder.Configuration);
 using var host = builder.Build();
-if (builder.Configuration["Quality:Action"] is not null)
+if (builder.Configuration["Dataset:Action"] is not null)
+{
+    if (demo || builder.Configuration["Quality:Action"] is not null) throw new ArgumentException("Choose one explicit Worker action.");
+    using var scope = host.Services.CreateScope();
+    using var cancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    Environment.ExitCode = await BetStats.Infrastructure.Datasets.DatasetOperatorCommand.RunAsync(scope.ServiceProvider, builder.Configuration, cancellation.Token);
+}
+else if (builder.Configuration["Quality:Action"] is not null)
 {
     if (demo) throw new ArgumentException("Choose one explicit Worker action.");
     using var scope = host.Services.CreateScope();

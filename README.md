@@ -2,13 +2,18 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-006 versioned quality assessments, explicit identity review and deterministic RAW reconciliation; live provider access disabled.
+> **Status:** BS-007 frozen dataset artifacts, deterministic metadata features and temporal/policy gates; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Providers, statistics, predictions,
 > authentication and localization remain planned.
 
 ## Product boundary
+
+[BS-007 dataset snapshots and features](docs/en/data/dataset-snapshots-features.md)
+documents explicit synthetic Worker commands, immutable evidence, verification,
+comparison and recovery. See [ADR 0020](docs/adr/0020-dataset-snapshots-features.md).
+Metadata features describe partial observed history; no model is trained or validated.
 
 [BS-006 operator workflow and historical eligibility](docs/en/data/quality-identity-reconciliation.md)
 documents explicit Worker commands, bounded reports, immutable quality/maintenance

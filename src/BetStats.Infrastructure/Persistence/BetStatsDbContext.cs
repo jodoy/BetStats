@@ -12,6 +12,9 @@ namespace BetStats.Infrastructure.Persistence;
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
     public DbSet<DataSource> DataSources => Set<DataSource>();
+    public DbSet<DatasetArtifact> DatasetArtifacts => Set<DatasetArtifact>();
+    public DbSet<DatasetFeatureRecord> DatasetFeatures => Set<DatasetFeatureRecord>();
+    public DbSet<DatasetBuildEvent> DatasetBuildEvents => Set<DatasetBuildEvent>();
     public DbSet<QualityAssessment> QualityAssessments => Set<QualityAssessment>();
     public DbSet<MaintenanceEvent> MaintenanceEvents => Set<MaintenanceEvent>();
     public DbSet<IngestionRun> IngestionRuns => Set<IngestionRun>();
@@ -93,6 +96,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         GovernanceModelConfiguration.Configure(modelBuilder);
         IngestionModelConfiguration.Configure(modelBuilder);
         QualityModelConfiguration.Configure(modelBuilder);
+        DatasetModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -111,6 +115,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is DatasetArtifact or DatasetFeatureRecord or DatasetBuildEvent && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Dataset artifacts, features and build audit are append-only.");
             if (entry.Entity is QualityAssessment or MaintenanceEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Quality assessments and maintenance audit are append-only.");
             if (entry.Entity is RawPayload && entry.State is EntityState.Modified or EntityState.Deleted)

@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IDataReconciliation, DataReconciliation>();
         services.AddScoped<IAnalyticalQualityGate, AnalyticalQualityGate>();
         services.AddScoped<IQualityReports, QualityReports>();
+        services.AddScoped<BetStats.Application.Datasets.IDatasets, BetStats.Infrastructure.Datasets.PostgreSqlDatasets>();
         services.AddSingleton<IFootballMetadataParser, FootballDataCsvParser>();
         services.AddSingleton<IRawPayloadStore>(_ => new FileSystemRawPayloadStore(configuration["Ingestion:RawStoragePath"]
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BetStats", "raw")));

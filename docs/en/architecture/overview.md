@@ -55,6 +55,13 @@ and [governance and temporal limits](../data/source-governance.md).
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`
 
 ## Hard invariants
+
+BS-007 adds bounded Application dataset contracts and pure feature calculators.
+Infrastructure assembles time-bounded RAW/identity/quality evidence under REPEATABLE
+READ, then finalizes immutable PostgreSQL artifacts/vectors after current rights
+checks under shared source locks. See [ADR 0020](../../adr/0020-dataset-snapshots-features.md)
+and [dataset commands and diagram](../data/dataset-snapshots-features.md).
+
 - Provider DTO != domain entity.
 - Provider IDs do not live on canonical entities.
 - Conflicts remain observable.

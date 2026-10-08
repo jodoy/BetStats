@@ -2,13 +2,18 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-006 — wersjonowana jakość, jawny przegląd tożsamości i reconciliation RAW; realny provider pozostaje wyłączony.
+> **Status:** BS-007 — niezmienne zbiory danych, deterministyczne cechy metadanych i bramki czasowe/praw; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Providery, statystyki, predykcje, uwierzytelnianie
 > i lokalizacja pozostają planowane.
 
 ## Granica produktu
+
+[Zbiory danych i cechy BS-007](docs/pl/data/dataset-snapshots-features.md)
+opisują jawne polecenia syntetyczne, weryfikację, porównanie i odzyskiwanie.
+[ADR 0020](docs/adr/0020-dataset-snapshots-features.md). Cechy opisują częściową
+zaobserwowaną historię; żaden model nie został wytrenowany ani zwalidowany.
 
 [Workflow operatora i eligibility BS-006](docs/pl/data/quality-identity-reconciliation.md)
 opisuje polecenia Workera, raporty, chroniony audyt i oddzielne tryby
