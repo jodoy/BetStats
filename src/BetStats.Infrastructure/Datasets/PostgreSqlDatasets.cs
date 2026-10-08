@@ -23,6 +23,8 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
 {
     private sealed class Denied(string code) : Exception(code);
     private static IEnumerable<DataPurpose> Purposes(DatasetDefinition d) => new[] { d.Purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention }.Distinct();
+    private static object FrozenPolicy(SourcePolicy policy) => new { policy.Id, policy.DataSourceId, policy.Version, policy.EffectiveFromUtc, policy.EffectiveToUtc,
+        policy.TermsReference, policy.EvidenceReference, policy.RecordedAtUtc, Permissions = policy.Permissions.OrderBy(p => p.Purpose).ToArray() };
 
     public async Task<DatasetBuildResult> BuildAsync(DatasetBuildRequest request, CancellationToken token = default)
     {
@@ -189,8 +191,7 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         foreach (var policyId in policyRefs.Select(p => p.PolicyId).Distinct())
         {
             var policy = await db.SourcePolicies.AsNoTracking().Include(p => p.Permissions).SingleAsync(p => p.Id == policyId, token);
-            Freeze("policy", policyId, new { policy.Id, policy.DataSourceId, policy.Version, policy.EffectiveFromUtc, policy.EffectiveToUtc,
-                policy.TermsReference, policy.EvidenceReference, policy.RecordedAtUtc, Permissions = policy.Permissions.OrderBy(p => p.Purpose).ToArray() });
+            Freeze("policy", policyId, FrozenPolicy(policy));
         }
         foreach (var auditId in policyRefs.SelectMany(p => p.AuditIds).Distinct()) Freeze("policy-audit", auditId, await db.PolicyAudits.AsNoTracking().SingleAsync(a => a.Id == auditId, token));
         return new(o.DataSourceId, eventId, decisions[2].CanonicalId!.Value, decisions[3].CanonicalId!.Value, o.ProviderIdentityId,
@@ -288,7 +289,9 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                 var observation = await db.Observations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == e.DateObservationId, token);
                 var raw = await db.RawPayloads.AsNoTracking().SingleOrDefaultAsync(r => r.Id == e.RawId, token);
                 if (observation is null || raw is null || raw.ContentHashSha256 != e.RawHash || observation.RawPayloadId != e.RawId ||
-                    observation.DateValue != e.EventDate || raw.RecordedAtUtc != e.RawRecordedUtc ||
+                    observation.DateValue != e.EventDate || observation.ProviderIdentityId != e.ProviderIdentityId || observation.DataSourceId != e.SourceId ||
+                    observation.AvailableAtUtc != e.DateAvailableUtc || observation.RecordedAtUtc != e.DateRecordedUtc || raw.RecordedAtUtc != e.RawRecordedUtc ||
+                    observation.AvailableAtUtc > e.EvidenceCutoffUtc || observation.RecordedAtUtc > e.EvidenceCutoffUtc || raw.RecordedAtUtc > e.EvidenceCutoffUtc ||
                     await db.IdentityResolutions.CountAsync(d => e.DecisionIds.Contains(d.Id), token) != e.DecisionIds.Count ||
                     await db.ProviderIdentities.CountAsync(i => e.ContextIdentityIds.Contains(i.Id), token) != e.ContextIdentityIds.Count ||
                     await db.QualityAssessments.CountAsync(a => e.QualityAssessmentIds.Contains(a.Id), token) != e.QualityAssessmentIds.Count ||
@@ -296,6 +299,19 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                 foreach (var policy in e.Policies)
                     if (!await db.SourcePolicies.AnyAsync(p => p.Id == policy.PolicyId && p.DataSourceId == e.SourceId, token) ||
                         await db.PolicyAudits.CountAsync(a => policy.AuditIds.Contains(a.Id), token) != policy.AuditIds.Count) complete = false;
+                foreach (var frozen in e.FrozenRecords)
+                {
+                    object? current = frozen.Kind switch {
+                        "observation" => await db.Observations.AsNoTracking().SingleOrDefaultAsync(v => v.Id == frozen.Id, token),
+                        "raw" => await db.RawPayloads.AsNoTracking().SingleOrDefaultAsync(v => v.Id == frozen.Id, token),
+                        "identity" => await db.ProviderIdentities.AsNoTracking().SingleOrDefaultAsync(v => v.Id == frozen.Id, token),
+                        "decision" => await db.IdentityResolutions.AsNoTracking().SingleOrDefaultAsync(v => v.Id == frozen.Id, token),
+                        "quality" => await db.QualityAssessments.AsNoTracking().SingleOrDefaultAsync(v => v.Id == frozen.Id, token),
+                        "policy-audit" => await db.PolicyAudits.AsNoTracking().SingleOrDefaultAsync(v => v.Id == frozen.Id, token),
+                        "policy" => await db.SourcePolicies.AsNoTracking().Include(v => v.Permissions).SingleOrDefaultAsync(v => v.Id == frozen.Id, token) is { } p ? FrozenPolicy(p) : null,
+                        _ => null };
+                    if (current is null || !CanonicalDatasetJson.Serialize(current).AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(frozen.CanonicalJson))) complete = false;
+                }
             }
         if (!complete) reasons.Add(permission ? "evidence_incomplete" : "evidence_not_inspected_without_permission");
         if (!reproducible) reasons.Add("feature_reproduction_failed");
