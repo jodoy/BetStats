@@ -50,3 +50,9 @@ oraz [governance i ograniczenia czasu](../data/source-governance.md).
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`
 
 Najważniejsze niezmienniki: separacja provider/domain, zachowanie konfliktów i provenance, immutable snapshots, `AsOfUtc`, oddzielenie Prediction Engine od Market Engine.
+
+BS-007 dodaje kontrakty zbiorów i czyste kalkulatory w Application. Infrastructure
+składa historyczne dowody w REPEATABLE READ i zapisuje niezmienny artefakt oraz
+wektory po ponownej kontroli praw pod wspólnymi blokadami źródeł.
+[ADR 0020](../../adr/0020-dataset-snapshots-features.md) i
+[polecenia oraz diagram](../data/dataset-snapshots-features.md).

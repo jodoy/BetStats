@@ -350,7 +350,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         Assert.Equal(run.Id, (await context.IngestionRuns.SingleAsync(timeout.Token)).Id);
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.SingleAsync(timeout.Token)).StorageKey);
         Assert.Equal(4, await context.Sports.CountAsync(timeout.Token));
-        Assert.Equal(6, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(7, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 }
