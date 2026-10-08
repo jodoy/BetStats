@@ -31,6 +31,14 @@ Zobacz [ADR 0015](../../adr/0015-canonical-identity-and-temporal-observations.md
 i [model, kontrakt czasowy oraz ER](../data/canonical-sports-model.md).
 
 Pipeline:
+
+BS-004 dodaje governance źródeł w Domain, ocenę praw, kontrakty providerów i
+budżety procesu w Application oraz persystencję governance w Infrastructure.
+Wewnętrzne zatwierdzenie nie oznacza praw licencyjnych. Historia tożsamości
+używa dostępności DB; obserwacje mają ograniczone strony keyset. Brak klienta HTTP
+i endpointów. Zobacz [ADR 0016](../../adr/0016-source-governance-and-bounded-history.md)
+oraz [governance i ograniczenia czasu](../data/source-governance.md).
+
 `Provider → RAW → Observation → Validation → Resolution → Canonical → FeatureSnapshot → DatasetSnapshot → Model → PredictionSnapshot → Signal`
 
 Najważniejsze niezmienniki: separacja provider/domain, zachowanie konfliktów i provenance, immutable snapshots, `AsOfUtc`, oddzielenie Prediction Engine od Market Engine.

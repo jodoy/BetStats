@@ -37,7 +37,9 @@ samego identyfikatora wraz z wersją/czasem. Unikalność identity/version bloku
 konkurencyjne gałęzie; po konflikcie trzeba ponownie odczytać stan i ocenić dowody.
 Najwyższa wersja jest jedyną bieżącą decyzją. Kontrakt Application
 `IIdentityResolutionHistory` dopisuje decyzje i odczytuje ostatnią dopuszczalną
-według DecidedAtUtc/AsOfUtc. Nie aktualizuje wcześniejszych obserwacji.
+według DecidedAtUtc i zaufanego czasu DB RecordedAtUtc/AsOfUtc (BS-004).
+Stare decyzje mają konserwatywną dostępność z czasu migracji.
+Nie aktualizuje wcześniejszych obserwacji.
 
 ## Obserwacje i czas
 
@@ -69,7 +71,10 @@ Opcjonalne filtry ograniczają zakres. Adapter Infrastructure używa AsNoTrackin
 najpierw `AvailableAtUtc <= AsOfUtc`, potem sortowania AvailableAtUtc,
 CreatedAtUtc, UUID rosnąco. Indeksy obejmują kind/identity/cele i dostępność.
 Filtr canonicalId wyklucza unresolved; filtr source/identity pozwala je odczytać.
-Nie ma paginacji ani projekcji wybierającej najnowszy wynik.
+BS-004 dodaje paginację keyset przez ReadPageAsOfAsync; domyślny limit 200 jest
+konfigurowalny, a stary odczyt listy zgłasza błąd przy przekroczeniu.
+Nie ma projekcji wybierającej najnowszy wynik. Szczegóły:
+[paginacja i zaufana dostępność](source-governance.md).
 
 Przykład: rekord pobrany 1 stycznia jest widoczny 2 stycznia; korekta pobrana
 3 stycznia nie jest widoczna 2 stycznia nawet przy czasie źródłowym 31 grudnia.

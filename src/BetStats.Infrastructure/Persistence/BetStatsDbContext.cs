@@ -1,8 +1,10 @@
 using BetStats.Domain.Identity;
+using BetStats.Domain.Governance;
 using BetStats.Domain.Observations;
 using BetStats.Domain.Sports;
 using BetStats.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
 
 namespace BetStats.Infrastructure.Persistence;
 
@@ -20,6 +22,9 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     public DbSet<ProviderIdentity> ProviderIdentities => Set<ProviderIdentity>();
     public DbSet<IdentityResolution> IdentityResolutions => Set<IdentityResolution>();
     public DbSet<Observation> Observations => Set<Observation>();
+    public DbSet<SourcePolicy> SourcePolicies => Set<SourcePolicy>();
+    public DbSet<PolicyAudit> PolicyAudits => Set<PolicyAudit>();
+    public DbSet<PurposePermission> PurposePermissions => Set<PurposePermission>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -80,6 +85,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         payloads.HasIndex(payload => payload.ContentHashSha256);
         CanonicalModelConfiguration.Configure(modelBuilder);
         ProvenanceModelConfiguration.Configure(modelBuilder);
+        GovernanceModelConfiguration.Configure(modelBuilder);
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
@@ -104,12 +110,17 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
             }
             if (entry.Entity is ProviderIdentity or IdentityResolution or Observation && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Identity and observation history is append-only.");
+            if (entry.Entity is SourcePolicy or PolicyAudit or PurposePermission && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Source policy versions, permissions and audit are append-only.");
             if (entry.State is not (EntityState.Added or EntityState.Modified))
             {
                 continue;
             }
             foreach (var property in entry.Properties)
             {
+                // Database-generated availability is not a caller-supplied timestamp.
+                if (entry.State == EntityState.Added && property.Metadata.GetBeforeSaveBehavior() == PropertySaveBehavior.Ignore)
+                    continue;
                 if (property.CurrentValue is DateTime timestamp && timestamp.Kind != DateTimeKind.Utc)
                 {
                     throw new InvalidOperationException($"{entry.Metadata.ClrType.Name}.{property.Metadata.Name} must be UTC.");

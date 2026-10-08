@@ -38,6 +38,8 @@ public sealed class IdentityResolution
     public int? PreviousVersion { get; private set; }
     public DateTime? PreviousDecidedAtUtc { get; private set; }
     public DateTime DecidedAtUtc { get; private set; }
+    // Assigned by PostgreSQL; caller decision time is not historical availability.
+    public DateTime RecordedAtUtc { get; private set; }
     public string DecidedBy { get; private set; } = null!;
     public string Reason { get; private set; } = null!;
     public Guid? RawPayloadId { get; private set; }

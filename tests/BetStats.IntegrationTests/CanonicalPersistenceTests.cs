@@ -103,9 +103,10 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         var resolved = new IdentityResolution(Guid.NewGuid(), identity, ResolutionStatus.Resolved, new(CanonicalEntityKind.Participant, target.Id), "reviewer", "Explicit verified evidence", Time.AddHours(2), ambiguous);
         await history.AppendAsync(unresolved); await history.AppendAsync(ambiguous); await history.AppendAsync(resolved);
         Assert.Null(await history.ReadLatestAsOfAsync(identity.Id, Time.AddSeconds(-1)));
-        Assert.Equal(ResolutionStatus.Unresolved, (await history.ReadLatestAsOfAsync(identity.Id, Time))!.Status);
-        Assert.Null((await history.ReadLatestAsOfAsync(identity.Id, Time.AddHours(1)))!.CanonicalId);
-        Assert.Equal(target.Id, (await history.ReadLatestAsOfAsync(identity.Id, Time.AddHours(2)))!.CanonicalId);
+        Assert.Null(await history.ReadLatestAsOfAsync(identity.Id, Time));
+        Assert.Equal(ResolutionStatus.Unresolved, (await history.ReadLatestAsOfAsync(identity.Id, unresolved.RecordedAtUtc))!.Status);
+        Assert.Null((await history.ReadLatestAsOfAsync(identity.Id, ambiguous.RecordedAtUtc))!.CanonicalId);
+        Assert.Equal(target.Id, (await history.ReadLatestAsOfAsync(identity.Id, resolved.RecordedAtUtc))!.CanonicalId);
         var staleBranch = new IdentityResolution(Guid.NewGuid(), identity, ResolutionStatus.Unresolved, null, "reviewer", "Stale concurrent decision", Time.AddHours(3), ambiguous);
         await Reject(() => history.AppendAsync(staleBranch), PostgresErrorCodes.UniqueViolation);
     });
@@ -345,7 +346,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         Assert.Equal(run.Id, (await context.IngestionRuns.SingleAsync(timeout.Token)).Id);
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.SingleAsync(timeout.Token)).StorageKey);
         Assert.Equal(4, await context.Sports.CountAsync(timeout.Token));
-        Assert.Equal(2, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(3, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 }

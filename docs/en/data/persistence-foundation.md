@@ -10,6 +10,8 @@ This page documents the BS-002 ingestion layer. BS-003 adds independent canonica
 and provenance schemas; see the [canonical model and historical query contract](canonical-sports-model.md).
 The RAW guard limitations below still apply to ingestion metadata; the new
 provenance tables additionally have database immutability triggers.
+BS-004 adds [source policies, audit and trusted identity availability](source-governance.md)
+in an additive migration; existing ingestion definitions remain intact.
 
 ## Schema and provenance
 
