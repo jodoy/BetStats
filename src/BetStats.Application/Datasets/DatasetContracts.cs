@@ -1,6 +1,8 @@
 using BetStats.Application.Governance;
 using BetStats.Domain.Governance;
 using BetStats.Domain.Quality;
+using BetStats.Application.Coverage;
+using System.Text.Json.Serialization;
 
 namespace BetStats.Application.Datasets;
 
@@ -15,11 +17,11 @@ public sealed record DatasetDefinition(int Version, Guid SportId, Guid Competiti
     public void Validate()
     {
         static bool Utc(DateTime t) => t.Kind == DateTimeKind.Utc && t.Ticks % 10 == 0;
-        if (Version != 1 || SportId == Guid.Empty || CompetitionId == Guid.Empty || SeasonId == Guid.Empty ||
+        if (Version is not (1 or 2) || SportId == Guid.Empty || CompetitionId == Guid.Empty || SeasonId == Guid.Empty ||
             string.IsNullOrWhiteSpace(CompetitionReference) || CompetitionReference.Length > 50 ||
             string.IsNullOrWhiteSpace(SeasonReference) || SeasonReference.Length > 50 || SeasonEnd < SeasonStart ||
             SeasonEnd.DayNumber - SeasonStart.DayNumber > 730 || !Utc(AsOfUtc) || !Enum.IsDefined(Mode) ||
-            QualityVersion != 1 || FeatureSchemaVersion != 1 || CalendarBasis != "UTC-calendar" ||
+            QualityVersion != 1 || FeatureSchemaVersion != Version || CalendarBasis != "UTC-calendar" ||
             InclusionRule != "eligible-observed-metadata-v1" || ExclusionRule != "fail-closed-v1" ||
             Context is null || Context.IntendedRetentionDays is <= 0 ||
             Purpose is not (DataPurpose.InternalAnalytics or DataPurpose.ModelTraining or DataPurpose.PublicDisplay or DataPurpose.CommercialUse or DataPurpose.Redistribution) ||
@@ -39,13 +41,15 @@ public sealed record DatasetEvidenceReference(Guid SourceId, Guid EventId, Guid 
     Guid RawId, string RawHash, DateTime RawRecordedUtc, DateTime DateAvailableUtc, DateTime DateRecordedUtc,
     DateOnly EventDate, string? Status, IReadOnlyList<Guid> QualityAssessmentIds, IReadOnlyList<DatasetPolicyReference> Policies,
     DateTime EvidenceCutoffUtc, DateTime InterpretationCutoffUtc, IReadOnlyList<DatasetFrozenRecord> FrozenRecords);
-public sealed record FeatureArtifact(int SchemaVersion, DatasetEvidenceReference Target, IReadOnlyList<DatasetEvidenceReference> History, FeatureVector Vector);
+public sealed record FeatureArtifact(int SchemaVersion, DatasetEvidenceReference Target, IReadOnlyList<DatasetEvidenceReference> History, FeatureVector Vector,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DatasetGovernanceRow? Governance = null);
 public sealed record DatasetEligibilityFailure(Guid ObservationId, string Reason);
 public sealed record DatasetRow(Guid EventId, DateTime PredictionCutoffUtc, DatasetEvidenceReference Target,
     IReadOnlyList<DatasetEvidenceReference> History, IReadOnlyList<DatasetEligibilityFailure> Excluded,
     FeatureVector Features, string FeatureHash);
 public sealed record DatasetManifest(int ManifestVersion, int SerializerVersion, string DefinitionFingerprint,
-    DatasetDefinition Definition, IReadOnlyList<string> QualityRuleVersions, IReadOnlyList<DatasetRow> Rows);
+    DatasetDefinition Definition, IReadOnlyList<string> QualityRuleVersions, IReadOnlyList<DatasetRow> Rows,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DatasetGovernance? Governance = null);
 public sealed record DatasetSnapshot(Guid Id, string ManifestHash, DateTime BuiltAtUtc, DateTime RecordedAtUtc, DatasetManifest Manifest);
 public sealed record DatasetVerification(Guid SnapshotId, bool ArtifactIntegrity, bool EvidenceComplete,
     bool CurrentlyAuthorized, bool FeaturesReproducible, IReadOnlyList<string> Reasons);

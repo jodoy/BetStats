@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using System.Text;
+using BetStats.Application.Coverage;
 using BetStats.Application.Datasets;
 using BetStats.Application.Governance;
 using BetStats.Application.Ingestion;
@@ -19,7 +20,7 @@ using Microsoft.EntityFrameworkCore;
 namespace BetStats.Infrastructure.Datasets;
 
 public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore rawStore, IFootballMetadataParser parser,
-    IAnalyticalQualityGate gate, ISourcePolicyEvaluator policies, ISourceOperationalStatus sources) : IDatasets
+    IAnalyticalQualityGate gate, ISourcePolicyEvaluator policies, ISourceOperationalStatus sources, IHistoricalCoverage? coverage = null) : IDatasets
 {
     private sealed class Denied(string code) : Exception(code);
     private static IEnumerable<DataPurpose> Purposes(DatasetDefinition d) => new[] { d.Purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention }.Distinct();
@@ -61,13 +62,13 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                 db.DatasetArtifacts.Add(artifact);
                 foreach (var row in manifest.Rows)
                     db.DatasetFeatures.Add(new() { Id = Guid.NewGuid(), DatasetId = artifact.Id, EventId = row.EventId,
-                        PredictionCutoffUtc = row.PredictionCutoffUtc, Fingerprint = row.FeatureHash, Content = CanonicalDatasetJson.Serialize(new FeatureArtifact(1, row.Target, row.History, row.Features)) });
+                        PredictionCutoffUtc = row.PredictionCutoffUtc, Fingerprint = row.FeatureHash, Content = CanonicalDatasetJson.Serialize(Feature(manifest, row, row.Features)) });
             }
             AddEvent(attempt, 3, DatasetBuildStatus.Succeeded, fingerprint, request.OperatorId, request.Reason, artifact.Id, null);
             await db.SaveChangesAsync(token); await finalization.CommitAsync(token);
             return new(attempt, DatasetBuildStatus.Succeeded, artifact.Id, hash, null);
         }
-        catch (Exception error) when (error is Denied or IOException or InvalidDataException or DbUpdateException or System.Data.Common.DbException or OperationCanceledException or ArgumentException or InvalidOperationException)
+        catch (Exception error) when (error is Denied or UnauthorizedAccessException or IOException or InvalidDataException or DbUpdateException or System.Data.Common.DbException or OperationCanceledException or ArgumentException or InvalidOperationException)
         {
             db.ChangeTracker.Clear();
             var status = error is OperationCanceledException ? DatasetBuildStatus.Cancelled : DatasetBuildStatus.Failed;
@@ -88,6 +89,7 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
     private async Task<DatasetManifest> Assemble(DatasetDefinition d, string fingerprint, CancellationToken token)
     {
         var rows = new List<DatasetRow>();
+        var governanceRows = new List<DatasetGovernanceRow>();
         foreach (var targetRequest in d.Targets)
         {
             var targetObservation = await db.Observations.AsNoTracking().SingleOrDefaultAsync(o => o.Id == targetRequest.DateObservationId, token);
@@ -121,11 +123,26 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             var ordered = history.OrderBy(e => e.EventId).ThenBy(e => e.DateObservationId).ToArray();
             var features = FootballMetadataFeatures.Compute(target, cutoff, ordered);
             rows.Add(new(target.EventId, cutoff, target, ordered, excluded.OrderBy(e => e.ObservationId).ToArray(), features, CanonicalDatasetJson.Fingerprint(new FeatureArtifact(1, target, ordered, features))));
+            if (d.Version == 2)
+            {
+                var governance = await (coverage ?? throw new InvalidOperationException("Coverage service required for schema v2.")).DatasetRowAsync(d, rows[^1], token);
+                governanceRows.Add(governance);
+                features = Govern(features, governance);
+                rows[^1] = rows[^1] with { Features = features, FeatureHash = CanonicalDatasetJson.Fingerprint(new FeatureArtifact(2, target, ordered, features, governance)) };
+            }
         }
         if (rows.Select(r => (r.EventId, r.PredictionCutoffUtc)).Distinct().Count() != rows.Count) throw new Denied("duplicate_target");
-        return new(1, 1, fingerprint, d, FootballQualityRules.Catalog.Select(r => r.Id + ":" + r.Version).Order(StringComparer.Ordinal).ToArray(),
-            rows.OrderBy(r => r.EventId).ThenBy(r => r.PredictionCutoffUtc).ToArray());
+        return new(d.Version, 1, fingerprint, d, FootballQualityRules.Catalog.Select(r => r.Id + ":" + r.Version).Order(StringComparer.Ordinal).ToArray(),
+            rows.OrderBy(r => r.EventId).ThenBy(r => r.PredictionCutoffUtc).ToArray(),
+            d.Version == 2 ? new(1, governanceRows.OrderBy(r => r.EventId).ThenBy(r => r.PredictionCutoffUtc).ToArray()) : null);
     }
+
+    private static FeatureVector Govern(FeatureVector vector, DatasetGovernanceRow governance) => vector with { SchemaVersion = 2,
+        Values = vector.Values.Select(value => governance.Gates.Single(g => g.FeatureName == value.Name) is { } decision &&
+            decision.Outcome is not (FeatureCoverageOutcome.Eligible or FeatureCoverageOutcome.EligibleWithPartialCoverage)
+            ? value with { Value = null, MissingReason = "coverage_gate:" + decision.Outcome } : value).ToArray() };
+    private static FeatureArtifact Feature(DatasetManifest manifest, DatasetRow row, FeatureVector vector) => new(manifest.Definition.FeatureSchemaVersion,
+        row.Target, row.History, vector, manifest.Governance?.Rows.Single(r => r.EventId == row.EventId && r.PredictionCutoffUtc == row.PredictionCutoffUtc));
 
     private async Task<DatasetEvidenceReference?> Evidence(Observation o, DatasetDefinition d, DateTime cutoff, CancellationToken token)
     {
@@ -222,6 +239,8 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             var earliest = await db.RawPayloads.Where(r => rawIds.Contains(r.Id)).MinAsync(r => r.RetrievedAtUtc, token);
             await AuthorizeSource(source, manifest.Definition, earliest, await QualityPersistence.Now(db, token), token);
         }
+        if (manifest.Governance is { } governance)
+            await (coverage ?? throw new Denied("coverage_service_missing")).EnsureCurrentAsync(governance, manifest.Definition, token);
     }
     private Task LockKey(string key, CancellationToken token) => db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 7007))", token);
     private void AddEvent(Guid attempt, int sequence, DatasetBuildStatus status, string fingerprint, string actor, string reason, Guid? snapshot, string? failure) =>
@@ -255,6 +274,11 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                 throw new InvalidDataException("Invalid frozen evidence structure.");
         try { manifest.Definition.Validate(); }
         catch (ArgumentException error) { throw new InvalidDataException("Unsupported manifest definition.", error); }
+        if (manifest.ManifestVersion != manifest.Definition.Version ||
+            (manifest.ManifestVersion == 1 && manifest.Governance is not null) ||
+            (manifest.ManifestVersion == 2 && (manifest.Governance is not { SchemaVersion: 1 } governance || governance.Rows.Count != manifest.Rows.Count ||
+                governance.Rows.Any(r => r.CoverageSchemaVersion != 1 || r.Gates.Count != FootballMetadataFeatures.Catalog.Count || r.Coverage.Count != 8 || r.EventTimes.Count > 200))))
+            throw new InvalidDataException("Unsupported or incomplete manifest governance.");
         return (artifact, manifest);
     }
     public async Task<DatasetSnapshot> InspectAsync(Guid id, CancellationToken token = default)
@@ -273,14 +297,14 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         try { (artifact, manifest) = await Load(id, token); }
         catch (Exception e) when (e is JsonException or InvalidDataException or FormatException) { return new(id, false, false, false, false, ["artifact_unreadable"]); }
         var integrity = CanonicalDatasetJson.Hash(artifact.Content) == artifact.ManifestHash && CanonicalDatasetJson.Serialize(manifest).AsSpan().SequenceEqual(artifact.Content) &&
-            manifest.ManifestVersion == 1 && manifest.SerializerVersion == 1 && manifest.DefinitionFingerprint == artifact.DefinitionFingerprint &&
-            CanonicalDatasetJson.Fingerprint(manifest.Definition) == manifest.DefinitionFingerprint && manifest.Rows.Count == artifact.RowCount && artifact.FeatureSchemaVersion == 1;
+            manifest.ManifestVersion == manifest.Definition.Version && manifest.SerializerVersion == 1 && manifest.DefinitionFingerprint == artifact.DefinitionFingerprint &&
+            CanonicalDatasetJson.Fingerprint(manifest.Definition) == manifest.DefinitionFingerprint && manifest.Rows.Count == artifact.RowCount && artifact.FeatureSchemaVersion == manifest.Definition.FeatureSchemaVersion;
         if (!integrity) reasons.Add("artifact_or_manifest_integrity");
         var permission = true;
         await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token))
         {
             try { await Authorize(manifest, true, token); }
-            catch (Denied) { permission = false; reasons.Add("current_permission_denied"); }
+            catch (Exception error) when (error is Denied or UnauthorizedAccessException) { permission = false; reasons.Add("current_permission_denied"); }
             await tx.CommitAsync(token);
         }
         var complete = permission; var reproducible = integrity;
@@ -290,10 +314,27 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         {
             var stored = featureRecords.SingleOrDefault(f => f.EventId == row.EventId && f.PredictionCutoffUtc == row.PredictionCutoffUtc);
             var calculated = FootballMetadataFeatures.Compute(row.Target, row.PredictionCutoffUtc, row.History);
-            if (stored is null || row.FeatureHash != CanonicalDatasetJson.Fingerprint(new FeatureArtifact(1, row.Target, row.History, calculated)) ||
-                row.FeatureHash != CanonicalDatasetJson.Fingerprint(new FeatureArtifact(1, row.Target, row.History, row.Features)) ||
+            if (manifest.Governance is { } governance)
+            {
+                var governed = governance.Rows.Single(r => r.EventId == row.EventId && r.PredictionCutoffUtc == row.PredictionCutoffUtc);
+                foreach (var feature in FootballMetadataFeatures.Catalog)
+                {
+                    var day = DateOnly.FromDateTime(row.PredictionCutoffUtc);
+                    var windowStart = feature.LookbackDays is { } lookback ? day.AddDays(-lookback) : manifest.Definition.SeasonStart;
+                    if (windowStart >= day) windowStart = day.AddDays(-1);
+                    var relevant = governed.Coverage.Where(r => r.Query.Scope.ParticipantId == (feature.Name.StartsWith("home", StringComparison.Ordinal) ? row.Target.HomeId : row.Target.AwayId) &&
+                        r.Query.Scope.Interval.StartDate == windowStart).ToArray();
+                    if (CanonicalDatasetJson.Fingerprint(CoverageRules.Gate(FootballMetadataFeatures.Requirement(feature), relevant)) !=
+                        CanonicalDatasetJson.Fingerprint(governed.Gates.Single(g => g.FeatureName == feature.Name))) reproducible = false;
+                }
+                calculated = Govern(calculated, governed);
+            }
+            if (stored is null || row.FeatureHash != CanonicalDatasetJson.Fingerprint(Feature(manifest, row, calculated)) ||
+                row.FeatureHash != CanonicalDatasetJson.Fingerprint(Feature(manifest, row, row.Features)) ||
                 stored.Fingerprint != row.FeatureHash || CanonicalDatasetJson.Hash(stored.Content) != row.FeatureHash) reproducible = false;
         }
+        if (permission && manifest.Governance is { } frozenGovernance &&
+            (coverage is null || !await coverage.VerifyFrozenAsync(frozenGovernance, token))) complete = false;
         if (permission)
             foreach (var e in Evidence(manifest).DistinctBy(e => e.DateObservationId))
             {
