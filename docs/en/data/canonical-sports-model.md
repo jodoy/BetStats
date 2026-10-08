@@ -61,7 +61,8 @@ The registry is deliberately small:
 | EventStatus | SportingEvent | SportingEventStatus enum |
 
 Each row retains SourceEventTimeUtc (optional), SourcePublishedAtUtc (optional),
-RetrievedAtUtc, AvailableAtUtc and CreatedAtUtc. Domain and CHECK constraints
+RetrievedAtUtc, AvailableAtUtc, CreatedAtUtc and database-controlled RecordedAtUtc
+(BS-004.1). Domain and CHECK constraints
 reject inconsistent values/types and `AvailableAtUtc < RetrievedAtUtc` or
 `CreatedAtUtc < RetrievedAtUtc`. RAW composite FKs prevent cross-source links.
 Neither source event time nor publication time establishes availability.
@@ -92,7 +93,7 @@ IReadOnlyList<Observation> history = await observationHistory.ReadAsOfAsync(quer
 ```
 
 `IObservationHistory` lives in Application; the scoped Infrastructure adapter
-uses AsNoTracking and filters `AvailableAtUtc <= AsOfUtc` before ordering by
+uses AsNoTracking and filters `AvailableAtUtc <= AsOfUtc` and `RecordedAtUtc <= AsOfUtc` before ordering by
 AvailableAtUtc, CreatedAtUtc, Id ascending. PostgreSQL UUID ordering breaks ties
 deterministically. Kind/availability, identity/availability and each typed canonical
 target/availability have supporting indexes. Results contain all eligible history,
@@ -102,7 +103,7 @@ BS-004 adds `ReadPageAsOfAsync`, bounded keyset pages and validated query-bound
 cursors. The default configurable cap is 200; the legacy list API throws on overflow.
 See [paging consistency and trusted identity availability](source-governance.md).
 
-Example: a value obtained January 1 is visible January 2; its January 3 correction
+Example: a value obtained and recorded January 1 is visible January 2; its January 3 correction
 is excluded from January 2 even if source publication/event times say December 31.
 The January 3 query returns both rows and their correction relationship. Querying
 current canonical entities or latest mapping decisions does not reconstruct history.
@@ -112,7 +113,8 @@ PostgreSQL storage. Finer .NET ticks are rejected rather than silently rounded,
 which preserves exact predecessor timestamp FKs. Existing BS-002 handling is unchanged.
 Raw ingestion times remain independent; future ingestion must establish defensible
 acquisition/availability from trusted capture evidence. No historical availability
-exceptions or source-policy enforcement workflow is introduced here.
+exceptions are introduced. See [BS-004.1 trusted recording, legacy availability
+and RAW reprocessing](audit-remediation.md).
 
 ## ER diagram
 

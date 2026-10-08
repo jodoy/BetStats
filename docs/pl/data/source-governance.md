@@ -59,7 +59,9 @@ Application zawiera IProviderAdapter, opis źródła/sportów/capabilities, wali
 konfiguracji, cancellable wykonanie i kategorie błędów. MetadataDiscovery wymaga
 tego celu; EventMetadata/HistoricalObservations wymagają DataRetrieval.
 AuthorizedProviderExecutor sprawdza lokalną konfigurację i capabilities, politykę,
-budżet, a dopiero potem adapter. Walidacja konfiguracji nie może wywoływać API.
+bieżący status źródła przed polityką i ponownie przed budżetem, a dopiero potem
+adapter. Brak/wyłączenie źródła odmawia niezależnie od praw historycznych (BS-004.1).
+Walidacja konfiguracji nie może wywoływać API.
 Brak klienta HTTP/SDK. Wynik jest statusem/błędem; najmniejszy typowany kontrakt
 danych będzie należał do BS-005. Nie ma automatycznych retries, także dla auth.
 
@@ -82,12 +84,13 @@ wykluczają; stare rekordy i DecidedAtUtc pozostają zachowane. Migracja może f
 przepisać tabelę podczas backfill; trzeba ocenić czas/blokady przy większej bazie.
 RecordedAtUtc oznacza INSERT, nie COMMIT. Późny commit może zmienić powtarzany
 wynik historyczny. Ufamy zegarowi DB i zwykłym uprawnieniom; administrator może
-wyłączyć triggery. Obserwacje zachowują reguły BS-003 i wymagają przyszłych
-zaufanych dowodów pobrania przy ingestion.
+wyłączyć triggery. BS-004.1 dodaje też zaufany czas zapisu obserwacji i walidację
+relacji RAW: [naprawy audytu i retencja](audit-remediation.md).
 
 ReadPageAsOfAsync używa klucza AvailableAtUtc/CreatedAtUtc/UUID. Limit domyślny
 200, konfigurowalny 1–1000 przez History:MaximumPageSize albo zmienną
-History__MaximumPageSize. Każda strona ponawia AsOfUtc i filtry; kursor wiąże cały
+History__MaximumPageSize. Każda strona ponawia AvailableAtUtc/RecordedAtUtc <= AsOfUtc
+i filtry; kursor wiąże cały
 oryginalny query i sprawdza UTC/precyzję, UUID i cutoff. Pobieramy pageSize+1,
 bez offsetów. Remisy czasu nie dublują ani nie gubią istniejących rekordów.
 ReadAsOfAsync działa dla małych wyników, przy przekroczeniu limitu zgłasza błąd.

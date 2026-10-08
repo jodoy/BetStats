@@ -27,7 +27,7 @@ public sealed class ObservationHistory(BetStatsDbContext context, ObservationPag
     private IOrderedQueryable<Observation> Ordered(ObservationQuery query, ObservationCursor? cursor)
     {
         ArgumentNullException.ThrowIfNull(query);
-        var records = context.Observations.AsNoTracking().Where(item => item.EntityKind == query.EntityKind && item.AvailableAtUtc <= query.AsOfUtc);
+        var records = context.Observations.AsNoTracking().Where(item => item.EntityKind == query.EntityKind && item.AvailableAtUtc <= query.AsOfUtc && item.RecordedAtUtc <= query.AsOfUtc);
         if (query.CanonicalId is { } id)
             records = query.EntityKind switch
             {

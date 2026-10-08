@@ -8,8 +8,8 @@ Zobacz [ADR 0014](../../adr/0014-persistence-foundation.md).
 
 Ta strona opisuje ingestion z BS-002. BS-003 dodaje oddzielne schematy canonical
 i provenance: [model oraz kontrakt historii](canonical-sports-model.md).
-Opisane niżej ograniczenia ochrony RAW nadal dotyczą metadanych ingestion;
-nowe tabele provenance mają dodatkowo triggery niezmienności w bazie.
+BS-004.1 dodaje bazodanową ochronę RAW i projekt kontrolowanej retencji:
+[naprawy audytu](audit-remediation.md).
 BS-004 dodaje [polityki, audyt i dostępność tożsamości](source-governance.md)
 przez migrację addytywną; definicje ingestion pozostają zachowane.
 
@@ -29,8 +29,9 @@ Złożony FK uniemożliwia wskazanie runu z innego źródła. Indeksy obejmują 
 dozwolone: każda obserwacja pobrania pozostaje osobnym rekordem.
 UUID i czasy podaje wywołujący. Wymagany DateTime UTC jest mapowany na
 `timestamp with time zone` z dokładnością mikrosekund. Kontekst odrzuca inne
-rodzaje DateTime oraz aktualizacje/usuwanie RawPayload. Raw SQL i masowe operacje
-EF mogą ominąć tę ochronę; nie jest to gwarancja niezmienności całej bazy.
+rodzaje DateTime oraz aktualizacje/usuwanie RawPayload. Od BS-004.1 triggery blokują
+zwykłe UPDATE/DELETE/TRUNCATE RAW, również SQL i EF bulk. Administrator może je
+ominąć; ochrona nie obejmuje zewnętrznego magazynu payloadów.
 
 ExternalReference to identyfikator źródła, nie przyszły kanoniczny identyfikator
 sportowy. StorageKey jest nieprzezroczystym odwołaniem, bez podpisanych URL,

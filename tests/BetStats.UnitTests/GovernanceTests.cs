@@ -16,6 +16,10 @@ public sealed class GovernanceTests
     {
         public Task<IReadOnlyList<PolicyState>> ReadAtAsync(Guid dataSourceId, DateTime atUtc, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<PolicyState>>(states);
     }
+    private sealed class EnabledSource : ISourceOperationalStatus
+    {
+        public Task<SourceOperationalStatus> ReadAsync(Guid dataSourceId, CancellationToken cancellationToken = default) => Task.FromResult(SourceOperationalStatus.Enabled);
+    }
     [Fact]
     public async Task Missing_policy_denies_by_default()
     {
@@ -200,7 +204,7 @@ public sealed class GovernanceTests
     public async Task Provider_gate_denies_before_execution_and_validates_capability_and_config()
     {
         var clock = new Clock(); var budget = new RequestBudget(new(10, 10, 1, TimeSpan.FromSeconds(10)), clock);
-        var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History()), clock);
+        var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History()), clock, new EnabledSource());
         var adapter = new Adapter(); var request = new ProviderRequest(Adapter.Sport, ProviderCapability.EventMetadata, new());
         Assert.Equal(ProviderErrorCategory.PermissionDenied, (await executor.ExecuteAsync(adapter, request, budget)).Error!.Category);
         Assert.Equal(0, adapter.Calls);
@@ -213,7 +217,7 @@ public sealed class GovernanceTests
     [InlineData(ProviderErrorCategory.TemporaryUnavailability)]
     public async Task Provider_failures_are_never_automatically_retried(ProviderErrorCategory category)
     {
-        var clock = new Clock(); var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History(new PolicyState(Policy(), PolicyStatus.Approved))), clock);
+        var clock = new Clock(); var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History(new PolicyState(Policy(), PolicyStatus.Approved))), clock, new EnabledSource());
         var adapter = new Adapter { Result = new(false, new(category, "synthetic_failure")) };
         var result = await executor.ExecuteAsync(adapter, new(Adapter.Sport, ProviderCapability.EventMetadata, new()), new(new(10, 10, 1, TimeSpan.FromSeconds(10)), clock));
         Assert.Equal(category, result.Error!.Category); Assert.Equal(1, adapter.Calls);
@@ -221,7 +225,7 @@ public sealed class GovernanceTests
     [Fact]
     public async Task Rate_limit_response_establishes_cooldown_and_cancellation_is_honored()
     {
-        var clock = new Clock(); var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History(new PolicyState(Policy(), PolicyStatus.Approved))), clock);
+        var clock = new Clock(); var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History(new PolicyState(Policy(), PolicyStatus.Approved))), clock, new EnabledSource());
         var adapter = new Adapter { Result = new(false, new(ProviderErrorCategory.RateLimitExceeded, "synthetic_limit", TimeSpan.FromSeconds(30))) };
         var budget = new RequestBudget(new(10, 10, 1, TimeSpan.FromSeconds(10)), clock);
         var request = new ProviderRequest(Adapter.Sport, ProviderCapability.EventMetadata, new());
@@ -253,7 +257,7 @@ public sealed class GovernanceTests
     public async Task Timeout_is_deterministic_and_does_not_release_a_still_running_adapter()
     {
         var clock = new Clock();
-        var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History(new PolicyState(Policy(), PolicyStatus.Approved))), clock);
+        var executor = new AuthorizedProviderExecutor(new SourcePolicyEvaluator(new History(new PolicyState(Policy(), PolicyStatus.Approved))), clock, new EnabledSource());
         var budget = new RequestBudget(new(10, 10, 1, TimeSpan.FromSeconds(10)), clock);
         var adapter = new IgnoringCancellationAdapter();
         var pending = executor.ExecuteAsync(adapter, new(Adapter.Sport, ProviderCapability.EventMetadata, new()), budget);

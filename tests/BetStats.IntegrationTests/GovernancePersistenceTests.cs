@@ -174,10 +174,11 @@ public sealed class GovernancePersistenceTests(PostgreSqlFixture fixture) : ICla
         context.AddRange(source, identity);
         var ids = Enumerable.Range(1, 7).Select(i => Guid.Parse($"30000000-0000-0000-0000-{i:000000000000}")).ToArray();
         foreach (var id in ids.Reverse()) context.Add(new Observation(id, identity, null, ObservationType.DisplayName, Time, Time, Time, textValue: "Synthetic"));
-        var future = new Observation(Guid.NewGuid(), identity, null, ObservationType.DisplayName, Time.AddDays(2), Time.AddDays(2), Time.AddDays(2), textValue: "Future");
+        var futureTime = new DateTime(2051, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var future = new Observation(Guid.NewGuid(), identity, null, ObservationType.DisplayName, futureTime, futureTime, futureTime, textValue: "Future");
         context.Add(future); await context.SaveChangesAsync();
         var history = new ObservationHistory(context, new(3));
-        var query = new ObservationQuery(CanonicalEntityKind.Participant, Time.AddDays(1), dataSourceId: source.Id, providerIdentityId: identity.Id);
+        var query = new ObservationQuery(CanonicalEntityKind.Participant, await DatabaseNow(context), dataSourceId: source.Id, providerIdentityId: identity.Id);
         var seen = new List<Guid>(); ObservationCursor? cursor = null;
         do
         {
@@ -202,8 +203,10 @@ public sealed class GovernancePersistenceTests(PostgreSqlFixture fixture) : ICla
         await using var context = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(container.GetConnectionString()).Options);
         await context.GetService<IMigrator>().MigrateAsync("20261008001440_CanonicalSportsAndTemporalObservations", timeout.Token);
         var source = Source(); var identity = new ProviderIdentity(Guid.NewGuid(), source.Id, CanonicalEntityKind.Participant, "synthetic", Time);
-        context.AddRange(source, identity, new Observation(Guid.NewGuid(), identity, null, ObservationType.DisplayName, Time, Time, Time, textValue: "Preserved"));
+        context.AddRange(source, identity);
         await context.SaveChangesAsync(timeout.Token);
+        var observationId = Guid.NewGuid();
+        await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO provenance.\"Observations\" (\"Id\", \"ProviderIdentityId\", \"DataSourceId\", \"EntityKind\", \"Type\", \"TextValue\", \"Version\", \"RetrievedAtUtc\", \"AvailableAtUtc\", \"CreatedAtUtc\") VALUES ({observationId}, {identity.Id}, {source.Id}, 'Participant', 'DisplayName', 'Preserved', 1, {Time}, {Time}, {Time})", timeout.Token);
         var decisionId = Guid.NewGuid();
         // Insert with the actual BS-003 columns; the current EF model contains the new column.
         await context.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO provenance.\"IdentityResolutions\" (\"Id\", \"ProviderIdentityId\", \"DataSourceId\", \"EntityKind\", \"Status\", \"Version\", \"DecidedBy\", \"Reason\", \"DecidedAtUtc\") VALUES ({decisionId}, {identity.Id}, {source.Id}, 'Participant', 'Unresolved', 1, 'reviewer', 'Preserved decision', {Time})", timeout.Token);
@@ -281,7 +284,7 @@ public sealed class GovernancePersistenceTests(PostgreSqlFixture fixture) : ICla
             new Observation(high, identity, null, ObservationType.DisplayName, Time, Time, Time, textValue: "Created first"));
         await context.SaveChangesAsync();
         var history = new ObservationHistory(context);
-        var query = new ObservationQuery(CanonicalEntityKind.Participant, Time.AddDays(1));
+        var query = new ObservationQuery(CanonicalEntityKind.Participant, await DatabaseNow(context));
         var first = await history.ReadPageAsOfAsync(query, 1);
         Assert.Equal(high, Assert.Single(first.Items).Id);
         var second = await history.ReadPageAsOfAsync(query, 1, first.NextCursor);

@@ -78,7 +78,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         await context.SaveChangesAsync();
         context.ChangeTracker.Clear();
         Assert.Equal(targetId, (await context.IdentityResolutions.SingleAsync()).CanonicalId);
-        Assert.Equal(targetId, Assert.Single(await new ObservationHistory(context).ReadAsOfAsync(new(kind, Time, targetId))).CanonicalId);
+        Assert.Equal(targetId, Assert.Single(await new ObservationHistory(context).ReadAsOfAsync(new(kind, observation.RecordedAtUtc, targetId))).CanonicalId);
     });
 
     [Fact]
@@ -117,14 +117,15 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         var source = Source(); var identity = Identity(source); var target = Participant();
         var reference = new CanonicalReference(CanonicalEntityKind.Participant, target.Id);
         var original = new Observation(Guid.NewGuid(), identity, reference, ObservationType.DisplayName, Time, Time, Time, textValue: "Original", sourceEventTimeUtc: Time.AddDays(-10));
-        var corrected = new Observation(Guid.NewGuid(), identity, reference, ObservationType.DisplayName, Time.AddDays(2), Time.AddDays(2), Time.AddDays(2), textValue: "Correction", sourceEventTimeUtc: Time.AddDays(-10), sourcePublishedAtUtc: Time.AddDays(-1), corrects: original);
+        var future = new DateTime(2051, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var corrected = new Observation(Guid.NewGuid(), identity, reference, ObservationType.DisplayName, future, future, future, textValue: "Correction", sourceEventTimeUtc: Time.AddDays(-10), sourcePublishedAtUtc: Time.AddDays(-1), corrects: original);
         context.AddRange(source, identity, target, original, corrected);
         await context.SaveChangesAsync();
         var history = new ObservationHistory(context);
-        var earlier = await history.ReadAsOfAsync(new(CanonicalEntityKind.Participant, Time.AddDays(1), target.Id));
+        var earlier = await history.ReadAsOfAsync(new(CanonicalEntityKind.Participant, corrected.RecordedAtUtc, target.Id));
         Assert.Equal("Original", Assert.Single(earlier).TextValue);
         Assert.DoesNotContain(earlier, o => o.Id == corrected.Id);
-        var later = await history.ReadAsOfAsync(new(CanonicalEntityKind.Participant, Time.AddDays(2), target.Id));
+        var later = await history.ReadAsOfAsync(new(CanonicalEntityKind.Participant, future, target.Id));
         Assert.Equal(new[] { original.Id, corrected.Id }, later.Select(o => o.Id));
         Assert.Equal(original.Id, later[1].CorrectsObservationId);
         Assert.Empty(await history.ReadAsOfAsync(new(CanonicalEntityKind.Participant, Time.AddSeconds(-1))));
@@ -142,7 +143,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         context.AddRange(source, identity, target, second, first, decision);
         await context.SaveChangesAsync();
         var history = new ObservationHistory(context);
-        var query = new ObservationQuery(CanonicalEntityKind.Participant, Time.AddDays(2), dataSourceId: source.Id, providerIdentityId: identity.Id);
+        var query = new ObservationQuery(CanonicalEntityKind.Participant, new[] { first.RecordedAtUtc, second.RecordedAtUtc }.Max(), dataSourceId: source.Id, providerIdentityId: identity.Id);
         Assert.Equal(new[] { low, high }, (await history.ReadAsOfAsync(query)).Select(o => o.Id));
         Assert.Equal(new[] { low, high }, (await history.ReadAsOfAsync(query)).Select(o => o.Id));
         Assert.All(await history.ReadAsOfAsync(query), o => Assert.Null(o.CanonicalId));
@@ -346,7 +347,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         Assert.Equal(run.Id, (await context.IngestionRuns.SingleAsync(timeout.Token)).Id);
         Assert.Equal(raw.StorageKey, (await context.RawPayloads.SingleAsync(timeout.Token)).StorageKey);
         Assert.Equal(4, await context.Sports.CountAsync(timeout.Token));
-        Assert.Equal(3, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(4, (await context.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
         Assert.False(context.Database.HasPendingModelChanges());
     }
 }
