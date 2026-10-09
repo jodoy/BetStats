@@ -1,0 +1,128 @@
+@page "/"
+@page "/{Section}"
+@inject DashboardClient Client
+@inject NavigationManager Navigation
+<PageTitle>BetStats · @T(View)</PageTitle>
+<a class="skip" href="#content">@T("dashboard")</a>
+<div lang="@Language">
+<header>
+    <a class="brand" href="/">BETSTATS <small>FOOTBALL</small></a>
+    <nav aria-label="BetStats">
+        @foreach (var page in Pages)
+        { <a class="@(View == page ? "active" : "")" aria-current="@(View == page ? "page" : null)" href="/@(page == "dashboard" ? "" : page)?lang=@Language">@T(page)</a> }
+    </nav>
+    <label>Language / Język<select value="@Language" @onchange="ChangeLanguage"><option value="pl-PL">Polski</option><option value="en-GB">English</option></select></label>
+</header>
+<main id="content">
+    <div class="eyebrow">FOOTBALL · HISTORICAL EVIDENCE</div>
+    <h1>@T(View)</h1><p>@T("scope")</p>
+    <form class="filters" @onsubmit="Apply" @onsubmit:preventDefault>
+        <label>@T("competition")<select @bind="competition"><option value="">@T("all")</option>@foreach(var c in competitions){<option value="@c.Id">@c.Name</option>}</select></label>
+        <label>@T("season")<select @bind="season"><option value="">@T("all")</option>@foreach(var c in seasons.Where(c => competition == "" || c.Parent?.ToString() == competition)){<option value="@c.Id">@c.Name</option>}</select></label>
+        <label>@T("team")<select @bind="team"><option value="">@T("all")</option>@foreach(var c in teams){<option value="@c.Id">@c.Name</option>}</select></label>
+        <label>@T("from")<input type="date" @bind="from" /></label>
+        <label>@T("to")<input type="date" @bind="to" /></label>
+        <label>@T("status")<select @bind="status"><option value="">@T("all")</option>@foreach(var s in Statuses){<option value="@s">@T(s)</option>}</select></label>
+        <button type="submit" disabled="@(state == "loading")">@T("apply")</button>
+    </form>
+    <ReadState State="@state" Language="@Language" Demo="@demo" />
+    @if(state == "ready")
+    {
+        @if(View == "dashboard")
+        {
+            <div class="cards"><div class="card">@T("matches")<div class="value">@fixtures.Count</div></div><div class="card">@T("models")<div class="value">@reports.Select(r => r.Predictor).Distinct().Count()</div></div><div class="card">@T("excluded")<div class="value">@fixtures.Sum(f => f.ExcludedCount)</div></div></div>
+        }
+        @if(View is "dashboard" or "matches")
+        {
+            <div class="table-scroll"><table><caption>@T("matches") · @T("dateOnly")</caption><thead><tr><th>@T("from")</th><th>@T("matches")</th><th>@T("status")</th><th>@T("details")</th></tr></thead><tbody>
+            @foreach(var f in fixtures)
+            {
+                <tr><td>@f.Date.ToString("d", Culture)<small>@T("dateOnly")</small></td><td>@Name(f.HomeId) — @Name(f.AwayId)<small>@(f.HomeScore is {} h && f.AwayScore is {} a ? $"{h} : {a}" : T("unavailable"))</small></td><td><span class="badge @f.Status">@T(f.Status)</span></td><td>
+                <details><summary>@T("details")</summary><dl><dt>@T("cutoff")</dt><dd>@f.CutoffUtc.ToString("u")</dd><dt>@T("history")</dt><dd>@f.HistoryCount</dd><dt>@T("excluded")</dt><dd>@f.ExcludedCount</dd></dl><p class="hash">Dataset @f.DatasetId<br />SHA256 @f.DatasetHash</p><p>@(demo ? T("demo") : T("verified"))</p>
+                @{var predictions = reports.SelectMany(r => r.Predictions).Where(p => p.EventId == f.EventId).ToArray();}
+                @if(predictions.Length == 0){<p>@T("noPrediction")</p>}
+                @foreach(var p in predictions){<PredictionCard Prediction="p" Language="@Language" />}
+                </details></td></tr>
+            }
+            </tbody></table></div>
+        }
+        @if(View == "teams")
+        {<div class="cards">@foreach(var t in teams){<article class="card"><h2>@t.Name</h2><p class="hash">@t.Id</p><a href="/matches?lang=@Language&amp;team=@t.Id">@T("matches")</a></article>}</div>}
+        @if(View is "models" or "backtesting")
+        {
+            @if(View=="backtesting")
+            {
+                <h2>@T("intersection")</h2>
+                @if(reports.Count<2 || reports.Select(r=>r.ComparisonKey).Distinct().Count()!=1){<p>@T("unavailable")</p>}
+                else{ @foreach(var target in reports[0].EligibleEvents.Keys){var common=reports.Select(r=>r.EligibleEvents.GetValueOrDefault(target,[]).ToHashSet()).Aggregate((left,right)=>{left.IntersectWith(right);return left;});<p>@T(target): @common.Count</p>} }
+            }
+            @foreach(var r in reports)
+            {
+                <article class="card"><h2>@r.Predictor · v@r.PredictorVersion</h2><span class="badge">@r.ExecutionKind</span><p>@T("cutoff"): @r.CutoffUtc.ToString("u")</p><p class="hash">Artifact @r.Id<br />SHA256 @r.Hash<br />Dataset SHA256 @r.DatasetHash</p><p>@T("verified")</p>
+                @if(r.Definition is {} definition){<dl><dt>Model</dt><dd>@definition.Kind · v@definition.Version</dd><dt>Warm-up</dt><dd>@definition.MinimumMatches / @definition.MinimumHalfMatches</dd><dt>History</dt><dd>@definition.HistoryDays d</dd><dt>Elo</dt><dd>@definition.Elo</dd><dt>Goals</dt><dd>@definition.Goals</dd></dl>}
+                @if(View == "backtesting")
+                {
+                    <p>@(Language == "en-GB" ? "Stored metrics; sample sets may differ. No ranking or equivalent-sample comparison is claimed." : "Zapisane metryki; zbiory próbek mogą się różnić. Brak rankingu i porównania na wspólnych próbkach.")</p>
+                    <div class="table-scroll"><table class="metrics"><thead><tr><th>@T("metric")</th><th>@T("sampleCounts")</th><th>n</th><th>@T("value")</th></tr></thead><tbody>@foreach(var m in r.Metrics){<tr><td>@T(m.Target) · @m.Name v@m.Version</td><td>@m.Requested / @m.Eligible / @m.Excluded</td><td>@m.Denominator</td><td>@DashboardPresentation.Metric(m.Value,m.PositiveInfinity,m.MinimumSamplesMet,Language)</td></tr>}</tbody></table></div>
+                    <details><summary>@T("calibration")</summary>@foreach(var m in r.Metrics){@foreach(var b in m.Calibration){<p>@m.Target · bin @b.Index · n=@b.Count · p=@DashboardPresentation.Metric(b.MeanProbability,false,true,Language) · observed=@DashboardPresentation.Metric(b.ObservedFrequency,false,true,Language)</p>}}@foreach(var c in r.ClassCalibration){@foreach(var b in c.Bins){<p>@c.Class · bin @b.Index · n=@b.Count · p=@DashboardPresentation.Metric(b.MeanProbability,false,true,Language) · observed=@DashboardPresentation.Metric(b.ObservedFrequency,false,true,Language)</p>}}@foreach(var reason in r.Exclusions){<p>@reason.Key: @reason.Value</p>}</details>
+                }
+                @foreach(var p in r.Predictions){<PredictionCard Prediction="p" Language="@Language" />}
+                @foreach(var f in r.Forecasts){<details><summary>@T("exactScores") · @f.EventId · @f.CutoffUtc.ToString("u")</summary><p>@T("warmup"): @f.Provenance.Warmed / @f.Provenance.HalfWarmed</p>@if(f.Provenance.FullTime is {} scores){<p>@T("expected"): @scores.HomeRate / @scores.AwayRate · @T("discardedMass") @scores.DiscardedMass</p><div class="table-scroll"><table><thead><tr><th>@T("home")</th><th>@T("away")</th><th>p</th></tr></thead><tbody>@foreach(var score in scores.Scores){<tr><td>@score.Home</td><td>@score.Away</td><td>@score.Probability.ToString("0.0000",Culture)</td></tr>}</tbody></table></div>}</details>}
+                </article>
+            }
+        }
+        @if(View == "quality" && quality is {})
+        {
+            <div class="cards"><div class="card">@T("matches")<div class="value">@quality.Fixtures</div></div><div class="card">@T("excluded")<div class="value">@quality.Excluded</div></div><div class="card">@T("history") · @T("unavailable")<div class="value">@quality.MissingHistory</div></div><div class="card">@T("Unknown")<div class="value">@quality.UnknownStatus</div></div></div>
+            <p>@(demo ? T("demo") : T("verified"))</p><p>@T("scope")</p><ul>@foreach(var limitation in quality.Limitations){<li>@T(limitation)</li>}</ul>
+        }
+        @if(View != "quality") {<div class="pager"><button disabled="@(offset == 0)" @onclick="Previous">@T("previous")</button><span>@(offset + 1)–@(offset + Count)</span><button disabled="@(!hasMore)" @onclick="Next">@T("next")</button></div>}
+    }
+</main>
+<footer>BetStats · @T("scope")</footer>
+</div>
+@code {
+    [Parameter] public string? Section { get; set; }
+    [SupplyParameterFromQuery(Name="lang")] public string? Lang { get; set; }
+    [SupplyParameterFromQuery(Name="team")] public string? TeamQuery { get; set; }
+    private static readonly string[] Pages = ["dashboard", "matches", "teams", "models", "backtesting", "quality"];
+    private static readonly string[] Statuses = ["Scheduled", "Postponed", "Completed", "Unknown", "Conflict", "Cancelled", "InProgress"];
+    private string View => Pages.Contains(Section) ? Section! : "dashboard";
+    private string Language => DashboardPresentation.Language(Lang);
+    private CultureInfo Culture => CultureInfo.GetCultureInfo(Language);
+    private string T(string key) => DashboardPresentation.Text(key, Language);
+    private string state = "loading", competition = "", season = "", team = "", status = "";
+    private DateOnly? from, to;
+    private int offset;
+    private bool demo, hasMore;
+    private IReadOnlyList<DashboardChoice> competitions = [], seasons = [], teams = [];
+    private IReadOnlyList<DashboardFixture> fixtures = [];
+    private IReadOnlyList<DashboardBacktest> reports = [];
+    private DashboardQuality? quality;
+    private int Count => View is "models" or "backtesting" ? reports.Count : View == "teams" ? teams.Count : fixtures.Count;
+    private string Name(Guid id) => teams.FirstOrDefault(t => t.Id == id)?.Name ?? id.ToString();
+    protected override async Task OnParametersSetAsync(){team = Guid.TryParse(TeamQuery,out var id) ? id.ToString() : ""; offset=0; await Load();}
+    private void ChangeLanguage(ChangeEventArgs args) => Navigation.NavigateTo($"/{(View == "dashboard" ? "" : View)}?lang={DashboardPresentation.Language(args.Value?.ToString())}");
+    private async Task Apply(){offset=0;await Load();}
+    private async Task Next(){offset+=20;await Load();}
+    private async Task Previous(){offset=Math.Max(0,offset-20);await Load();}
+    private async Task Load()
+    {
+        state="loading"; fixtures=[];reports=[];quality=null;
+        try
+        {
+            Guid? Id(string value)=>Guid.TryParse(value,out var id)?id:null;
+            var f=new DashboardFilter(Id(competition),Id(season),Id(team),from,to,status==""?null:status,offset);
+            var c=await Client.ReadAsync<DashboardPage<DashboardChoice>>("competitions",new(Limit:100)); competitions=c.Items;demo=c.Demo;
+            seasons=(await Client.ReadAsync<DashboardPage<DashboardChoice>>("seasons",new(Competition:Id(competition),Limit:100))).Items;
+            var t=await Client.ReadAsync<DashboardPage<DashboardChoice>>("teams",f with {Offset=View=="teams"?offset:0,Limit=View=="teams"?20:100});teams=t.Items;
+            if(View is "models" or "backtesting"){var b=await Client.ReadAsync<DashboardPage<DashboardBacktest>>(View=="models"?"models":"backtests",f);reports=b.Items;hasMore=b.HasMore;demo=b.Demo;}
+            else if(View=="quality"){quality=await Client.ReadAsync<DashboardQuality>("quality",f);hasMore=false;}
+            else if(View=="teams"){hasMore=t.HasMore;demo=t.Demo;}
+            else {var rows=await Client.ReadAsync<DashboardPage<DashboardFixture>>("fixtures",f);fixtures=rows.Items;hasMore=rows.HasMore;demo=rows.Demo;reports=(await Client.ReadAsync<DashboardPage<DashboardBacktest>>("predictions",f with {Offset=0,Limit=100})).Items;}
+            state=View=="quality" || Count>0?"ready":"empty";
+        }
+        catch(HttpRequestException e){state=e.StatusCode==System.Net.HttpStatusCode.Forbidden?"denied":"error";}
+        catch(Exception e) when(e is ArgumentException or InvalidDataException or System.Text.Json.JsonException or TaskCanceledException){state="error";}
+    }
+}

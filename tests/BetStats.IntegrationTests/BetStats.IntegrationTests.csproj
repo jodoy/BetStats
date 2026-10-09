@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="../../src/BetStats.Api/BetStats.Api.csproj" />
+    <ProjectReference Include="../../src/BetStats.Web/BetStats.Web.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <ProjectReference Include="../../src/BetStats.Infrastructure/BetStats.Infrastructure.csproj" />
     <PackageReference Include="Testcontainers.PostgreSql" />

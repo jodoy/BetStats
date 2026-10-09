@@ -1,0 +1,11 @@
+<details><summary>@Prediction.Predictor v@Prediction.Version · @DashboardPresentation.Text(Prediction.Target,Language)</summary>
+<p>@DashboardPresentation.Text("cutoff",Language): @Prediction.CutoffUtc.ToString("u")</p>
+<p>@string.Join(" / ",Prediction.Probabilities.Select(v=>v.ToString("P2",CultureInfo.GetCultureInfo(Language))))</p>
+<p>@DashboardPresentation.Text("history",Language): @Prediction.EvidenceCount · @DashboardPresentation.Text("warmup",Language): @Prediction.Warmed / @Prediction.HalfWarmed</p>
+@if(Prediction.ExpectedCount is {} count){<p>@DashboardPresentation.Text("expected",Language): @count.ToString("0.####",CultureInfo.GetCultureInfo(Language))</p>}
+<p class="hash">Feature SHA256 @Prediction.FeatureHash<br />Input SHA256 @Prediction.InputHash</p>
+</details>
+@code{
+    [Parameter,EditorRequired] public DashboardPrediction Prediction {get;set;}=null!;
+    [Parameter] public string Language {get;set;}="pl-PL";
+}

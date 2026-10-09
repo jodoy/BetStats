@@ -1,9 +1,12 @@
 using BetStats.Infrastructure;
+using BetStats.Api;
 using BetStats.Application.Sports;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddPersistence(builder.Configuration);
+if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Dashboard:DemoEnabled"))
+    builder.Services.AddScoped<BetStats.Application.Dashboard.IDashboardQueries, BetStats.Application.Dashboard.DemoDashboardQueries>();
 builder.Services.AddProblemDetails();
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.Strict);
@@ -16,6 +19,7 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
     return Task.CompletedTask;
 }));
 var app = builder.Build();
+app.MapDashboard();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 if (!app.Environment.IsDevelopment()) app.UseHttpsRedirection();
