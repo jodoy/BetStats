@@ -16,9 +16,20 @@ dotnet ef migrations has-pending-model-changes --project src/BetStats.Infrastruc
 git diff --check
 ```
 
-## Local evidence
+## Delivery evidence
 
-Final test results are recorded after the final delivery run. EF reports no model changes; all existing 13 migrations remain unchanged. Release compilation has no warnings or errors.
+Implementation head `b08f2d6098906cdaddaf159c077af0fce98df7e3` passed the complete CI suite: **680 tests, 0 failed, 0 skipped**. The final local Release build passed with 0 warnings/errors; local unit and architecture runs passed 304 and 21 cases respectively. EF reports no model changes; all existing 13 migrations remain unchanged. The PR description records the final local PostgreSQL outcome and exact final-head remote checks.
+
+| Check | Confirmed result |
+| --- | --- |
+| Restore / Release build | Passed locally and in CI, no warnings/errors |
+| Unit | 304 passed locally and in CI |
+| Architecture | 21 passed locally and in CI |
+| PostgreSQL 17 integration | 355 passed in CI |
+| Complete CI suite | 680 passed, 0 failed, 0 skipped |
+| EF model | No changes since the last migration |
+| Browser | PL/EN, DEMO states, Completed filter, mobile layout verified |
+| Diff | No whitespace errors |
 
 Added verification covers loopback/Host/Origin restrictions, unsafe API URLs, bounded filters, unavailable/ineligible metric formatting, explicit fictional DEMO semantics, localized Blazor loading/empty/denied/error states, PostgreSQL pagination and ordering, display permission separation, revocation and changed attribution/retention restrictions, missing/corrupt RAW, safe HTTP DTOs, GET-only routes and immutable artifact bytes/hashes/timestamps with unchanged operation ledgers. Architecture checks reject persistence access from Web and execution/mutation calls from the query adapter.
 
@@ -36,4 +47,9 @@ Stored integrity checks verify canonical artifact hashes, current rights/retenti
 
 ## Remote checks
 
-The pull request description records CI and CodeQL run links against the exact final head. Workflow success must be confirmed on that head before delivery; an earlier-head success does not count. No merge is performed.
+Implementation head `b08f2d6098906cdaddaf159c077af0fce98df7e3`:
+
+- [CI #46](https://github.com/jodoy/BetStats/actions/runs/37932549753): success; job log confirms 304 unit + 21 architecture + 355 integration cases.
+- [CodeQL #44](https://github.com/jodoy/BetStats/actions/runs/37932549720): success; C# analysis log confirms `Analysis upload status is complete.`
+
+The [pull request #18](https://github.com/jodoy/BetStats/pull/18) description records CI and CodeQL run links against the exact final documentation head as well. Workflow success must be confirmed on that head before delivery; an earlier-head success does not count. No merge is performed.

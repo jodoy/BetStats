@@ -278,6 +278,15 @@ the repository; filesystem/PostgreSQL writes are not a cross-system transaction.
 
 ## Documentation
 
+BS-014 adds a local bilingual read-only football dashboard. Start the explicit
+presentation DEMO without PostgreSQL using the [English setup](docs/en/development/dashboard.md)
+or [Polish setup](docs/pl/development/dashboard.md). User guides:
+[English](docs/en/user/dashboard.md), [Polski](docs/pl/user/dashboard.md).
+Existing data requires current display/retention rights and verified stored evidence;
+opening a page never runs imports, models or evaluation. See
+[ADR 0028](docs/adr/0028-read-only-football-dashboard.md) and the
+[verification report](docs/en/quality/bs-014-verification.md).
+
 BS-008 adds explicit reviewed coverage, event-time provenance, v2 dataset manifests
 and future evaluation contracts. Existing v1 snapshots remain immutable/readable.
 No real-world completeness or model performance is claimed. See
