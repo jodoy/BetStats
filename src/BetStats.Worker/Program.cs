@@ -11,7 +11,29 @@ var approve = args.Contains("--approve-synthetic", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a is not ("--synthetic-demo" or "--approve-synthetic")).ToArray());
 builder.Services.AddPersistence(builder.Configuration);
 using var host = builder.Build();
-if (builder.Configuration["FootballHistory:Action"] is not null)
+if (builder.Configuration["Pipeline:Action"] is not null)
+{
+    if (demo || new[] { "FootballHistory:Action", "Model:Action", "Backtest:Action", "Results:Action", "Coverage:Action", "Quality:Action", "Dataset:Action" }.Any(key => builder.Configuration[key] is not null))
+        throw new ArgumentException("Choose one explicit Worker action.");
+    using var scope = host.Services.CreateScope();
+    using var cancellation = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancellation.Cancel(); };
+    try { Environment.ExitCode = await BetStats.Infrastructure.Pipeline.PipelineOperatorCommand.RunAsync(scope.ServiceProvider, builder.Configuration, builder.Environment.IsDevelopment(), cancellation.Token); }
+    catch (Exception error) when (BetStats.Infrastructure.Pipeline.PipelineOperatorCommand.InfrastructureFailure(error))
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { Infrastructure = "Unavailable", ProviderDataReadiness = "Unknown", FailureCategory = "database_unavailable" }));
+        Environment.ExitCode = 1;
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { FailureCategory = "shutdown_requested" })); Environment.ExitCode = 1;
+    }
+    catch (Exception error) when (error is ArgumentException or InvalidOperationException or IOException or JsonException or UnauthorizedAccessException or IngestionDeniedException)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new { FailureCategory = "operator_request_rejected" })); Environment.ExitCode = 1;
+    }
+}
+else if (builder.Configuration["FootballHistory:Action"] is not null)
 {
     if (demo || new[] { "Model:Action", "Backtest:Action", "Results:Action", "Coverage:Action", "Quality:Action", "Dataset:Action" }.Any(key => builder.Configuration[key] is not null))
         throw new ArgumentException("Choose one explicit Worker action.");

@@ -20,7 +20,7 @@ public sealed class BacktestExecutor(IHistoricalPredictionProvider predictor)
         foreach (var row in definition.Version == 1 ? features.Manifest.Rows.OrderBy(r => r.Metadata.EventId) : features.Manifest.Rows.OrderBy(r => r.Metadata.PredictionCutoffUtc).ThenBy(r => r.Metadata.EventId))
         {
             var mg = features.Manifest.MetadataManifest.Governance?.Rows.SingleOrDefault(g => g.EventId == row.Metadata.EventId);
-            var input = BacktestRules.Input(row, mg);
+            var input = BacktestRules.Input(row, mg, d.TargetTimePolicy);
             Models.ModelProvenance? model = null;
             if (definition.Model is { } modelDefinition)
             {

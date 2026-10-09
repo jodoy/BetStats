@@ -77,11 +77,11 @@ public static class BacktestRules
             v.ExpectedCount is not null || v.Probabilities.Count != Classes(target).Count || v.Probabilities.Any(p => p < 0 || p > 1) || v.Probabilities.Sum() != 1))
             throw new ArgumentException("Exact finite probabilities summing to one, or a nonnegative bounded expected count required.");
     }
-    public static PredictionInput Input(FootballResultDatasetRow row, DatasetGovernanceRow? governance = null)
+    public static PredictionInput Input(FootballResultDatasetRow row, DatasetGovernanceRow? governance = null, string? targetTimePolicy = null)
     {
         var t = row.Metadata.PredictionCutoffUtc; var target = row.Metadata.Target;
         if (!Utc(t) || target.EventId != row.Metadata.EventId || target.EventId == Guid.Empty || target.HomeId == Guid.Empty || target.AwayId == Guid.Empty ||
-            t >= target.EventDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc) || EventDecision(target) == Guid.Empty ||
+            !PredictionTimeBoundary.Allows(targetTimePolicy, target.EventId, target.DateObservationId, target.EventDate, t, governance?.EventTimes ?? []) || EventDecision(target) == Guid.Empty ||
             target.InterpretationCutoffUtc > t || target.EvidenceCutoffUtc > t ||
             row.FeatureEvidence.Query.Mode != DatasetMode.HistoricalAsKnown || row.FeatureEvidence.Query.ReconstructionAtUtc is not null || row.FeatureEvidence.Query.AsOfUtc != t ||
             row.Features.TargetEventId != target.EventId || row.Features.PredictionCutoffUtc != t ||

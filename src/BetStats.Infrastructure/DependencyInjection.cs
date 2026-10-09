@@ -18,6 +18,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
     {
+        services.AddScoped<BetStats.Infrastructure.Pipeline.PostgreSqlPipeline>();
+        services.AddScoped<BetStats.Infrastructure.Pipeline.PipelineWork>();
         services.AddScoped<BetStats.Application.Dashboard.IDashboardQueries, BetStats.Infrastructure.Dashboard.PostgreSqlDashboardQueries>();
         services.AddSingleton<BetStats.Application.Evaluation.IHistoricalPredictionProvider, BetStats.Application.Evaluation.SyntheticConstantPredictor>();
         services.AddScoped<BetStats.Application.Evaluation.IHistoricalBacktests, BetStats.Infrastructure.Evaluation.PostgreSqlBacktests>();

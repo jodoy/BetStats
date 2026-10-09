@@ -38,6 +38,6 @@ public sealed class ResultOperationsMigrationTests
         Assert.Equal(results.Content, migratedResult.Content); Assert.Equal(results.Hash, migratedResult.Hash); Assert.Equal(results.RecordedAtUtc, migratedResult.RecordedAtUtc);
         Assert.Empty(await db.ResultInventory.ToArrayAsync(timeout.Token)); Assert.Empty(await db.EventEnds.ToArrayAsync(timeout.Token)); Assert.Empty(await db.ResultOperations.ToArrayAsync(timeout.Token));
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Empty(await db.Database.GetPendingMigrationsAsync(timeout.Token));
-        Assert.Equal(13, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(14, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
     }
 }

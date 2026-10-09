@@ -16,9 +16,11 @@ namespace BetStats.IntegrationTests;
 public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private Task<ResultOperationsWorkflowTests.Scenario> Create() => new ResultOperationsWorkflowTests(fixture).Create();
-    internal static async Task<BacktestDefinition> Definition(ResultOperationsWorkflowTests.Scenario s, bool model = false)
+    internal static async Task<BacktestDefinition> Definition(ResultOperationsWorkflowTests.Scenario s, bool model = false, string? targetTimePolicy = null)
     {
-        var dataset = await s.Get<IResultDatasetOperations>().BuildAsync(new(Guid.NewGuid(), await s.Request(), "operator", "Freeze BS011 fictional feature input", true));
+        var request = await s.Request();
+        if (targetTimePolicy is not null) request = request with { Metadata = request.Metadata with { Definition = request.Metadata.Definition with { TargetTimePolicy = targetTimePolicy } } };
+        var dataset = await s.Get<IResultDatasetOperations>().BuildAsync(new(Guid.NewGuid(), request, "operator", "Freeze BS011 fictional feature input", true));
         Assert.Equal(ResultOperationStatus.Succeeded, dataset.Status);
         var snapshot = await s.Get<IFootballResultDatasets>().InspectAsync(dataset.SnapshotId!.Value);
         var evaluations = Enum.GetValues<EvaluationTarget>().Select(t => new EvaluationDefinition(3, snapshot.Manifest.MetadataManifest.Definition.SportId, t,

@@ -38,6 +38,6 @@ public sealed class FootballResultMigrationTests
         }
         Assert.Empty(await db.FootballResults.ToListAsync(timeout.Token)); Assert.Empty(await db.FootballResultArtifacts.ToListAsync(timeout.Token));
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Empty(await db.Database.GetPendingMigrationsAsync(timeout.Token));
-        Assert.Equal(13, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(14, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
     }
 }
