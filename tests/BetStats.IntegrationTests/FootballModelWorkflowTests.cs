@@ -27,7 +27,7 @@ public sealed class FootballModelWorkflowTests(PostgreSqlFixture fixture) : ICla
     [Fact] public async Task Bs011_database_and_finalized_artifacts_remain_byte_identical_after_models()
     {
         await using var s = await new ResultOperationsWorkflowTests(fixture).Create();
-        Assert.Equal(13, (await s.Db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(s.Db.Database.HasPendingModelChanges()); Assert.Empty(await s.Db.Database.GetPendingMigrationsAsync());
+        Assert.Equal(14, (await s.Db.Database.GetAppliedMigrationsAsync()).Count()); Assert.False(s.Db.Database.HasPendingModelChanges()); Assert.Empty(await s.Db.Database.GetPendingMigrationsAsync());
         var d = await BacktestWorkflowTests.Definition(s); var ops = s.Get<IHistoricalBacktests>();
         var legacy = await ops.RunAsync(new(Guid.NewGuid(), d, "operator", "Finalize legacy BS011 before model operations", true)); Assert.Equal(ResultOperationStatus.Succeeded, legacy.Status);
         var artifact = await s.Db.Backtests.AsNoTracking().SingleAsync(a => a.Id == legacy.SnapshotId);

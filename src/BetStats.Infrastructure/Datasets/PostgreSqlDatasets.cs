@@ -97,11 +97,16 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             if (targetObservation is null || targetObservation.Type != ObservationType.EventDate || targetObservation.DateValue is not { } date ||
                 targetObservation.AvailableAtUtc > d.AsOfUtc || targetObservation.RecordedAtUtc > d.AsOfUtc)
                 throw new Denied("target_evidence_missing_at_cutoff");
-            var midnight = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
-            if (targetRequest.PredictionCutoffUtc >= midnight) throw new Denied("prediction_cutoff_not_before_target_day");
+            if (d.TargetTimePolicy is null && targetRequest.PredictionCutoffUtc >= date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc))
+                throw new Denied("prediction_cutoff_not_before_target_day");
             // Target schedule/context is itself required at prediction time, never only at dataset AsOf.
             var target = await Evidence(targetObservation, d, targetRequest.PredictionCutoffUtc, token);
             if (target is null) throw new Denied("target_not_eligible_at_prediction_cutoff");
+            IReadOnlyList<EventTimeClaimResult> targetTimes = d.TargetTimePolicy is null ? [] :
+                await (coverage ?? throw new InvalidOperationException("Source-bound kickoff service required.")).TimesAsync(target.ProviderIdentityId,
+                    targetRequest.PredictionCutoffUtc, d.Mode, d.ReconstructionAtUtc, d.Purpose, d.Context, token);
+            if (!PredictionTimeBoundary.Allows(d.TargetTimePolicy, target.EventId, target.DateObservationId, date, targetRequest.PredictionCutoffUtc, targetTimes))
+                throw new Denied(d.TargetTimePolicy is null ? "prediction_cutoff_not_before_target_day" : "source_bound_kickoff_unavailable_at_cutoff");
             var cutoff = targetRequest.PredictionCutoffUtc;
             var candidates = await db.Observations.AsNoTracking().Where(o => o.DataSourceId == target.SourceId && o.Type == ObservationType.EventDate &&
                 o.AvailableAtUtc <= cutoff && o.RecordedAtUtc <= cutoff && o.DateValue >= d.SeasonStart && o.DateValue <= d.SeasonEnd &&

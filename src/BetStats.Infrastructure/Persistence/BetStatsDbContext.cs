@@ -49,6 +49,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        BetStats.Infrastructure.Pipeline.PipelineConfiguration.Configure(modelBuilder);
         FootballImportOperationConfiguration.Configure(modelBuilder);
         modelBuilder.HasDefaultSchema("ingestion");
 
@@ -133,6 +134,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is BetStats.Infrastructure.Pipeline.PipelineJobVersion or BetStats.Infrastructure.Pipeline.PipelineReceipt or BetStats.Infrastructure.Pipeline.PipelineArtifact && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Pipeline definitions, receipts and artifacts are append-only.");
             if (entry.Entity is BacktestArtifact or BacktestOperationEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Backtests and operation history are append-only.");
             if (entry.Entity is BetStats.Domain.Football.ResultInventoryEvidence or BetStats.Domain.Football.ResultInventoryReview or BetStats.Domain.Football.EventEndEvidence or ResultOperationEvent or FootballImportOperation && entry.State is EntityState.Modified or EntityState.Deleted)

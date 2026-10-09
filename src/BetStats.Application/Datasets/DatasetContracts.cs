@@ -12,11 +12,14 @@ public sealed record DatasetDefinition(int Version, Guid SportId, Guid Competiti
     string CompetitionReference, string SeasonReference, DateOnly SeasonStart, DateOnly SeasonEnd,
     DateTime AsOfUtc, DatasetMode Mode, DateTime? ReconstructionAtUtc, int QualityVersion,
     int FeatureSchemaVersion, DataPurpose Purpose, UsageContext Context, string CalendarBasis,
-    string InclusionRule, string ExclusionRule, IReadOnlyList<DatasetTarget> Targets)
+    string InclusionRule, string ExclusionRule, IReadOnlyList<DatasetTarget> Targets,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TargetTimePolicy = null)
 {
     public void Validate()
     {
         static bool Utc(DateTime t) => t.Kind == DateTimeKind.Utc && t.Ticks % 10 == 0;
+        if (TargetTimePolicy is not null && (TargetTimePolicy != PredictionTimeBoundary.SourceBoundKickoffV1 || Version != 2 || Mode != DatasetMode.HistoricalAsKnown))
+            throw new ArgumentException("Explicit supported historical source-bound target-time policy required.");
         if (Version is not (1 or 2) || SportId == Guid.Empty || CompetitionId == Guid.Empty || SeasonId == Guid.Empty ||
             string.IsNullOrWhiteSpace(CompetitionReference) || CompetitionReference.Length > 50 ||
             string.IsNullOrWhiteSpace(SeasonReference) || SeasonReference.Length > 50 || SeasonEnd < SeasonStart ||

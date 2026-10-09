@@ -76,13 +76,20 @@ public sealed class ResultOperationsWorkflowTests(PostgreSqlFixture fixture) : I
         }
         public async ValueTask DisposeAsync() { Scope.Dispose(); await Provider.DisposeAsync(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
-    internal async Task<Scenario> Create(bool allowDisplay = false)
+    internal async Task<Scenario> Create(bool allowDisplay = false, DateTime? targetKickoff = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "betstats-bs010-" + Guid.NewGuid().ToString("N"));
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:BetStats"] = fixture.GetConnectionString(), ["Ingestion:RawStoragePath"] = root }).Build();
         var provider = new ServiceCollection().AddPersistence(config).BuildServiceProvider(); var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BetStatsDbContext>(); var at = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync();
-        var scenario = new Scenario { Provider = provider, Scope = scope, Root = root, Fixture = SyntheticResultScenario.Create(new Clock(at)) };
+        var fiction = SyntheticResultScenario.Create(new Clock(at));
+        if (targetKickoff is { } kickoff)
+        {
+            Assert.True(kickoff > at);
+            var date = DateOnly.FromDateTime(kickoff);
+            fiction = fiction with { Csv = fiction.Csv.Replace(fiction.TargetDate.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture), date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal), TargetDate = date };
+        }
+        var scenario = new Scenario { Provider = provider, Scope = scope, Root = root, Fixture = fiction };
         scenario.Source = await SyntheticFootballDemo.PrepareAsync(db, true, "bs010-fiction-" + Guid.NewGuid().ToString("N"), allowSyntheticDisplay: allowDisplay, fixtureScope: scenario.Fixture.Scope);
         Assert.Equal(ImportOutcome.Succeeded, (await scenario.Import()).Outcome); return scenario;
     }

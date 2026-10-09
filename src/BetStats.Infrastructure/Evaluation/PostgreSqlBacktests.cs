@@ -43,7 +43,11 @@ public sealed class PostgreSqlBacktests(BetStatsDbContext db, IFootballResultDat
         try { return await datasets.InspectAsync(id, token); }
         catch (Exception error) when (PostgreSqlDatasets.IsPermissionDenial(error)) { throw new UnauthorizedAccessException("Current feature permission denied.", error); }
     }
-    public async Task<BacktestManifest> PlanAsync(BacktestDefinition definition, CancellationToken token = default)
+    public Task<BacktestManifest> PlanAsync(BacktestDefinition definition, CancellationToken token = default) => Plan(definition, null, token);
+    internal Task<BacktestManifest> EvaluateFrozenAsync(BacktestSnapshot frozen, DateTime cutoff, CancellationToken token) =>
+        Plan(frozen.Manifest.Definition with { EvaluationCutoffUtc = cutoff }, frozen.Manifest, token);
+    internal Task EnsurePipelinePublicationAsync(BacktestManifest manifest, CancellationToken token) => EnsureCurrent(manifest, token, true);
+    private async Task<BacktestManifest> Plan(BacktestDefinition definition, BacktestManifest? frozen, CancellationToken token)
     {
         definition.Validate();
         var features = await Features(definition, token); var d = features.Manifest.MetadataManifest.Definition;
@@ -70,7 +74,13 @@ public sealed class PostgreSqlBacktests(BetStatsDbContext db, IFootballResultDat
                 var ids = await db.PolicyAudits.AsNoTracking().Where(a => a.SourcePolicyId == policy && a.RecordedAtUtc <= checkedAt && a.ReviewedAtUtc <= checkedAt).OrderBy(a => a.Id).Select(a => a.Id).ToArrayAsync(token);
                 authorizations.Add(new(source, purpose, policy, version, ids));
             }
-        var manifest = new BacktestExecutor(Predictor(definition)).Execute(definition, features, evidence) with { Authorizations = authorizations };
+        var manifest = new BacktestExecutor(frozen is null ? Predictor(definition) : new BetStats.Application.Pipeline.FrozenPredictionProvider(frozen)).Execute(definition, features, evidence) with { Authorizations = authorizations };
+        if (frozen is not null)
+        {
+            if (CanonicalDatasetJson.Fingerprint(manifest.Predictions) != CanonicalDatasetJson.Fingerprint(frozen.Predictions))
+                throw new InvalidDataException("Evaluation changed frozen predictions.");
+            manifest = manifest with { ExecutionKind = "frozen-prediction-postmatch-evaluation" };
+        }
         await assembly.CommitAsync(token); return manifest;
     }
     public Task<ResultOperationResult> RunAsync(BacktestRequest request, CancellationToken token = default) => Run(request, false, token);
