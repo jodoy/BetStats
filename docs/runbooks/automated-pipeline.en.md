@@ -75,6 +75,8 @@ Cancellation is durable and cooperative. Child artifacts already committed remai
 
 Local retries reread the exact approved bytes and recheck current authorization, retention, capabilities, budget and identity review. Restoring a file does not approve its identities. If prediction publication already succeeded before a crash, recovery reuses the frozen child artifact. An interrupted prediction operation that never completed is blocked with `new_job_required_for_unpublished_prediction`: plan a new current-cutoff job rather than impersonating an earlier run. A new feature stage uses the current attempt's actual clock. Existing pipeline outputs cannot be overwritten by retry.
 
+If the final permitted attempt crashed and its lease expired, `recover` records `Blocked / attempt_budget_exhausted` without executing another attempt. The operator can then explicitly revise the disabled definition or plan a new job. This prevents an abandoned final attempt from leaving an ungovernable running head while preserving the retry bound.
+
 On shutdown the worker attempts a bounded cancelled receipt. If the database or fence is unavailable, it leaves the durable running state for explicit recovery. Never infer success from a terminated process or a missing terminal receipt. Inspect the existing child operation ledger before deciding how to proceed.
 
 ## Observe

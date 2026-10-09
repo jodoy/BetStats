@@ -70,6 +70,12 @@ public sealed class PipelineWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         Assert.Equal(1, await Command(s, "run-once"));
         var execution = await s.Db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.JobId == job);
         Assert.NotEqual(PipelineState.Completed, execution.State); Assert.Empty(await s.Db.Set<PipelineArtifact>().Where(x => x.ExecutionId == execution.Id).ToArrayAsync());
+        if (revoke)
+        {
+            Assert.Equal(1, await Command(s, "retry", execution.Id));
+            Assert.Equal(PipelineState.Blocked, (await s.Db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.Id == execution.Id)).State);
+            Assert.Empty(await s.Db.Set<PipelineArtifact>().Where(x => x.ExecutionId == execution.Id).ToArrayAsync());
+        }
     }
     [Fact] public async Task Prematch_uses_actual_db_cutoff_and_frozen_postmatch_replay_preserves_every_prediction_byte()
     {

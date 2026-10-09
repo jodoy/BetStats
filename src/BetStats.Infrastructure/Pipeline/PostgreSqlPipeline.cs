@@ -146,16 +146,25 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         await tx.CommitAsync(token);
     }
 
-    public async Task<PipelineClaim> RetryAsync(Guid execution, bool recover, PipelineApproval approval, CancellationToken token = default)
+    public async Task<PipelineClaim?> RetryAsync(Guid execution, bool recover, PipelineApproval approval, CancellationToken token = default)
     {
         approval.Validate(); db.ChangeTracker.Clear(); await using var owner = await OwnAsync(execution, token);
         var existing = await db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.Id == execution, token);
         await using var tx = await db.Database.BeginTransactionAsync(token); var job = await LockJob(existing.JobId, token); var e = await LockExecution(execution, token);
         var now = await Now(token); var definition = await Definition(e, token);
         if (await db.Set<PipelineArtifact>().AnyAsync(x => x.ExecutionId == execution, token)) throw new InvalidOperationException("Immutable output already exists; inspect the terminal receipt.");
-        if (job.Version != e.DefinitionVersion || e.Attempt >= definition.MaximumAttempts ||
+        if (job.Version != e.DefinitionVersion ||
             (recover ? e.State != PipelineState.Running || e.LeaseUntilUtc > now : e.State is not (PipelineState.Failed or PipelineState.Blocked or PipelineState.Cancelled)))
             throw new InvalidOperationException("Explicit bounded recovery/retry is unavailable.");
+        if (e.Attempt >= definition.MaximumAttempts)
+        {
+            if (!recover) throw new InvalidOperationException("Explicit attempt budget exhausted.");
+            // An expired final attempt must remain governable without executing more work.
+            // The session lock is held and the old owner is fenced by this terminal state.
+            e.State = PipelineState.Blocked; e.CompletedUtc = now; job.State = PipelineState.Blocked;
+            Receipt(job, e, e.State, "attempt_budget_exhausted", approval, now);
+            await db.SaveChangesAsync(token); await tx.CommitAsync(token); return null;
+        }
         e.Owner = Guid.NewGuid(); e.Attempt++; e.State = PipelineState.Running; e.StartedUtc = now; e.LeaseUntilUtc = now.AddSeconds(definition.LeaseSeconds);
         e.CompletedUtc = null; e.CancelRequested = false; job.State = PipelineState.Running;
         Receipt(job, e, e.State, recover ? "recovered" : "retried", approval, now);

@@ -49,6 +49,8 @@ Cancel jest trwały i kooperacyjny; nie usuwa już opublikowanych artefaktów. R
 
 Przywrócenie pliku nie zatwierdza jego tożsamości. Każda próba ponownie sprawdza dokładne bajty, bieżące prawa, retencję, capability, budżet i wymagane przeglądy BS-013. Jeśli predykcje opublikowano przed awarią, odzyskanie używa istniejącego zamrożonego artefaktu. Niedokończona publikacja predykcji daje new_job_required_for_unpublished_prediction: zaplanuj nowe zadanie z aktualnym cutoff zamiast udawać wcześniejsze wykonanie. Istniejącego wyniku pipeline nie można nadpisać przez retry.
 
+Jeżeli ostatnia dozwolona próba zakończyła się awarią procesu i lease wygasł, recover zapisuje Blocked / attempt_budget_exhausted bez uruchamiania kolejnej próby. Następnie można jawnie zaplanować nową wersję lub nowe zadanie. Limit prób pozostaje zachowany, a porzucone running nie blokuje zadania bez końca.
+
 Przy zamykaniu worker próbuje zapisać cancelled w ograniczonym czasie. Awaria bazy lub utrata fencing pozostawia trwałe running do ręcznego odzyskania. Brak końcowego receipt nie jest sukcesem. Zawsze sprawdź również ledger operacji podrzędnych.
 
 ## Obserwacja

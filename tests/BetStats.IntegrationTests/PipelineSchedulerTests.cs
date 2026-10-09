@@ -8,11 +8,11 @@ namespace BetStats.IntegrationTests;
 public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly PipelineApproval Approval = new("test:operator", "Explicit fictional pipeline verification", true);
-    private async Task<PipelineClaim> Start(int lease = 300)
+    private async Task<PipelineClaim> Start(int lease = 300, int maximumAttempts = 3)
     {
         await using var db = fixture.CreateContext(); var jobs = new PostgreSqlPipeline(db);
         var now = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync();
-        var id = Guid.NewGuid(); await jobs.PlanAsync(id, new(1, PipelineKind.LocalSynchronization, new(now), "{}", LeaseSeconds: lease), Approval);
+        var id = Guid.NewGuid(); await jobs.PlanAsync(id, new(1, PipelineKind.LocalSynchronization, new(now), "{}", MaximumAttempts: maximumAttempts, LeaseSeconds: lease), Approval);
         Assert.Null(await jobs.AcquireAsync(Approval));
         await jobs.SetEnabledAsync(id, true, Approval);
         return (await jobs.AcquireAsync(Approval))!;
@@ -42,6 +42,7 @@ public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFi
             await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.CompleteAsync(claim, new(PipelineState.Completed, "completed"), Approval));
         }
         var recovered = await jobs.RetryAsync(claim.ExecutionId, true, Approval);
+        Assert.NotNull(recovered);
         Assert.NotEqual(claim.Owner, recovered.Owner); Assert.Equal(2, recovered.Attempt); Assert.Equal(claim.PlannedUtc, recovered.PlannedUtc);
         await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.CompleteAsync(claim, new(PipelineState.Completed, "completed"), Approval));
         await jobs.CompleteAsync(recovered, new(PipelineState.Completed, "completed"), Approval);
@@ -56,7 +57,7 @@ public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFi
         Assert.Equal(PipelineState.Cancelled, (await db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.Id == claim.ExecutionId)).State);
         for (var attempt = 2; attempt <= 3; attempt++)
         {
-            claim = await jobs.RetryAsync(claim.ExecutionId, false, Approval); Assert.Equal(attempt, claim.Attempt);
+            claim = (await jobs.RetryAsync(claim.ExecutionId, false, Approval))!; Assert.Equal(attempt, claim.Attempt);
             await jobs.CompleteAsync(claim, new(PipelineState.Failed, "local_input_unavailable"), Approval);
         }
         await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.RetryAsync(claim.ExecutionId, false, Approval));
@@ -108,5 +109,17 @@ public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFi
         await jobs.CompleteAsync(claim, new(PipelineState.Completed, "completed"), Approval);
         Assert.Equal(1000, await db.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM pipeline.\"Diagnostics\"").SingleAsync());
         Assert.Equal(before + 1, await db.Set<PipelineReceipt>().CountAsync(x => x.JobId == claim.JobId));
+    }
+    [Fact] public async Task Expired_final_attempt_can_be_manually_stopped_without_executing_or_bypassing_the_budget()
+    {
+        var claim = await Start(1, 1); await using var db = fixture.CreateContext(); var jobs = new PostgreSqlPipeline(db);
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_sleep(1.1)");
+        Assert.Null(await jobs.RetryAsync(claim.ExecutionId, true, Approval));
+        var stopped = await db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.Id == claim.ExecutionId);
+        Assert.Equal(PipelineState.Blocked, stopped.State); Assert.Equal(1, stopped.Attempt);
+        Assert.Empty(await db.Set<PipelineArtifact>().Where(x => x.ExecutionId == claim.ExecutionId).ToArrayAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.CompleteAsync(claim, new(PipelineState.Completed, "completed"), Approval));
+        await jobs.PlanAsync(claim.JobId, claim.Definition with { MaximumAttempts = 2 }, Approval);
+        Assert.Equal(PipelineState.Disabled, (await db.Set<PipelineJob>().AsNoTracking().SingleAsync(x => x.Id == claim.JobId)).State);
     }
 }

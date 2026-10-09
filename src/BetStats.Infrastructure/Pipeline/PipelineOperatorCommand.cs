@@ -34,7 +34,10 @@ public static class PipelineOperatorCommand
                 result = await jobs.PlanAsync(Id("JobId"), JsonSerializer.Deserialize<PipelineDefinition>(bytes, JsonOptions) ?? throw new ArgumentException("Definition required."), approval, token); break;
             case "enable": case "disable": await jobs.SetEnabledAsync(Id("JobId"), action == "enable", approval, token); break;
             case "cancel": await jobs.CancelAsync(Id("ExecutionId"), approval, token); break;
-            case "retry": case "recover": claim = await jobs.RetryAsync(Id("ExecutionId"), action == "recover", approval, token); break;
+            case "retry": case "recover":
+                claim = await jobs.RetryAsync(Id("ExecutionId"), action == "recover", approval, token);
+                if (claim is null) result = new PipelineOutcome(PipelineState.Blocked, "attempt_budget_exhausted");
+                break;
             case "run-once": claim = await jobs.AcquireAsync(approval, token); break;
             case "work":
                 approval.Validate();
@@ -99,6 +102,7 @@ public static class PipelineOperatorCommand
         catch (Exception error) when (error is InvalidDataException or ArgumentException or InvalidOperationException or KeyNotFoundException or JsonException) { outcome = new(PipelineState.Blocked, "evidence_or_request_conflict"); }
         catch (IOException) { outcome = new(PipelineState.Failed, "local_input_unavailable"); }
         catch (Npgsql.NpgsqlException) { outcome = new(PipelineState.Failed, "database_unavailable"); }
+        catch (Exception) { outcome = new(PipelineState.Failed, "unexpected_execution_failure"); }
         finally { heartbeatStop.Cancel(); await heartbeat; }
         // If the database is unavailable or the owner is lost, this fails and leaves a recoverable running receipt.
         // No successful completion is invented in memory.
