@@ -17,6 +17,7 @@ public sealed class PostgreSqlBacktests(BetStatsDbContext db, IFootballResultDat
     IHistoricalPredictionProvider predictor, ISourcePolicyEvaluator policies, TimeSpan? leaseDuration = null) : IHistoricalBacktests
 {
     private readonly TimeSpan lease = leaseDuration ?? TimeSpan.FromMinutes(10);
+    private IHistoricalPredictionProvider Predictor(BacktestDefinition definition) => definition.Model is { } model ? new BetStats.Application.Models.FootballPredictor(model) : predictor;
     private Task Lock(Guid id, CancellationToken token) => db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({id.ToString("D")},9011))", token);
     private Task<BacktestOperationEvent?> Latest(Guid id, CancellationToken token) => db.BacktestOperations.AsNoTracking().Where(e => e.OperationId == id).OrderByDescending(e => e.Sequence).FirstOrDefaultAsync(token);
     private async Task<ResultOperationResult> Result(BacktestOperationEvent e, CancellationToken token) => new(e.OperationId, e.Status, e.Sequence, e.SnapshotId,
@@ -69,7 +70,7 @@ public sealed class PostgreSqlBacktests(BetStatsDbContext db, IFootballResultDat
                 var ids = await db.PolicyAudits.AsNoTracking().Where(a => a.SourcePolicyId == policy && a.RecordedAtUtc <= checkedAt && a.ReviewedAtUtc <= checkedAt).OrderBy(a => a.Id).Select(a => a.Id).ToArrayAsync(token);
                 authorizations.Add(new(source, purpose, policy, version, ids));
             }
-        var manifest = new BacktestExecutor(predictor).Execute(definition, features, evidence) with { Authorizations = authorizations };
+        var manifest = new BacktestExecutor(Predictor(definition)).Execute(definition, features, evidence) with { Authorizations = authorizations };
         await assembly.CommitAsync(token); return manifest;
     }
     public Task<ResultOperationResult> RunAsync(BacktestRequest request, CancellationToken token = default) => Run(request, false, token);
@@ -190,7 +191,7 @@ public sealed class PostgreSqlBacktests(BetStatsDbContext db, IFootballResultDat
         FootballResultSnapshot frozen;
         try { frozen = await ReadFeatureSnapshot(a.DatasetId, token); }
         catch (UnauthorizedAccessException) { return new(integrity, false, false, null, null); }
-        var calculated = new BacktestExecutor(predictor).Execute(m.Definition, frozen, m.EvaluationEvidence) with { Authorizations = m.Authorizations };
+        var calculated = new BacktestExecutor(Predictor(m.Definition)).Execute(m.Definition, frozen, m.EvaluationEvidence) with { Authorizations = m.Authorizations };
         var reproducible = feature.FeaturesReproducible && CanonicalDatasetJson.Fingerprint(calculated) == a.Hash;
         try { _ = await InspectAsync(id, token); }
         catch (UnauthorizedAccessException) { return new(integrity, reproducible, false, null, null); }

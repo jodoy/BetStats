@@ -7,7 +7,8 @@ namespace BetStats.Application.Evaluation;
 
 // The predictor input deliberately cannot carry labels, provider DTOs or evaluation evidence.
 public sealed record PredictionInput(int Version, Guid EventId, Guid HomeId, Guid AwayId, DateTime CutoffUtc,
-    string FeatureHash, FootballResultFeatureVector Features, IReadOnlyList<Guid> EvidenceIds);
+    string FeatureHash, FootballResultFeatureVector Features, IReadOnlyList<Guid> EvidenceIds,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Models.ModelHistory? History = null);
 public sealed record PredictionValue(IReadOnlyList<decimal> Probabilities, decimal? ExpectedCount);
 public interface IHistoricalPredictionProvider
 {
@@ -17,13 +18,16 @@ public interface IHistoricalPredictionProvider
 }
 public sealed record HistoricalPrediction(int Version, Guid EventId, DateTime PredictionCutoffUtc, string Predictor,
     int PredictorVersion, Guid FeatureDatasetId, string FeatureDatasetHash, string FeatureHash, string InputHash,
-    EvaluationTarget Target, PredictionValue Value, IReadOnlyList<Guid> EvidenceIds);
+    EvaluationTarget Target, PredictionValue Value, IReadOnlyList<Guid> EvidenceIds,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Models.PredictionModelProvenance? Model = null);
 public sealed record BacktestDefinition(int Version, Guid DatasetId, string ExpectedDatasetHash, string Predictor,
-    int PredictorVersion, DateTime EvaluationCutoffUtc, IReadOnlyList<EvaluationDefinition> Evaluations)
+    int PredictorVersion, DateTime EvaluationCutoffUtc, IReadOnlyList<EvaluationDefinition> Evaluations,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Models.FootballModelDefinition? Model = null)
 {
     public void Validate()
     {
-        if (Version != 1 || DatasetId == Guid.Empty || !BacktestRules.Hash(ExpectedDatasetHash) || Predictor != "synthetic-constant" || PredictorVersion != 1 ||
+        Model?.Validate();
+        if (!(Version == 1 && Model is null && Predictor == "synthetic-constant" || Version == 2 && Model is not null && Predictor == Model.Predictor) || DatasetId == Guid.Empty || !BacktestRules.Hash(ExpectedDatasetHash) || PredictorVersion != 1 ||
             !BacktestRules.Utc(EvaluationCutoffUtc) || Evaluations is null || Evaluations.Count is < 1 or > 6 ||
             Evaluations.Select(e => e.Target).Distinct().Count() != Evaluations.Count) throw new ArgumentException("Explicit bounded backtest v1 definition required.");
         foreach (var e in Evaluations)
@@ -47,7 +51,9 @@ public sealed record BacktestAuthorization(Guid SourceId, BetStats.Domain.Govern
 public sealed record BacktestManifest(int Version, int SerializerVersion, BacktestDefinition Definition, string Fingerprint,
     string ExecutionKind, IReadOnlyList<HistoricalPrediction> Predictions, IReadOnlyList<BacktestSample> Samples,
     FootballResultManifest EvaluationEvidence, BacktestReport Report,
-    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<BacktestAuthorization>? Authorizations = null);
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<BacktestAuthorization>? Authorizations = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] Models.WalkForwardReport? WalkForward = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<Models.ModelForecast>? ModelForecasts = null);
 public sealed record BacktestSnapshot(Guid Id, string Hash, DateTime RecordedAtUtc, BacktestManifest Manifest);
 public sealed record BacktestVerification(bool Integrity, bool Reproducible, bool CurrentlyAuthorized, bool? RawAvailable, bool? RawHashVerified);
 public interface IHistoricalBacktests

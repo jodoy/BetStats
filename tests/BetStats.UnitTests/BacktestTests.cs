@@ -18,7 +18,7 @@ public sealed class BacktestTests
         PredictionCutoffPolicy.BeforeCalendarDay, TimeSpan.FromHours(1), ["features", "event-time", "quality", "coverage", "source-policy"], t.ToString(), 1,
         new("result", 1, [ObservationType.EventDate], 30, false, "Completed", 1, false, true),
         EvaluationContracts.Metrics.Where(m => BacktestRules.Count(t) ? m.Name == "mae" : t == EvaluationTarget.MatchWinner ? m.Name != "mae" && m.Name != "calibration_error" : m.Name != "mae").ToArray());
-    private static (BacktestDefinition Definition, FootballResultSnapshot Features, FootballResultManifest Evidence) Scenario()
+    internal static (BacktestDefinition Definition, FootballResultSnapshot Features, FootballResultManifest Evidence) Scenario()
     {
         var target = new DatasetEvidenceReference(Id(2), Id(3), Id(4), Id(5), Id(6), [], [Id(7)], Id(8), null, Id(9), new('a', 64), T, T, T,
             new(2031, 1, 3), "Scheduled", [], [], T, T, [new("decision", Id(7), System.Text.Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(new { CanonicalSportingEventId = Id(3), Status = "Resolved", RecordedAtUtc = T })))]);
