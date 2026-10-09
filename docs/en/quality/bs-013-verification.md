@@ -43,7 +43,23 @@ missing sport scope for unreviewed identities; those runs are not delivery evide
 | BS-012 upgrade and import | Finalized dataset/model/prediction/backtest bytes, hashes, clocks and history preserved; deep verification passed |
 | Diff check | No whitespace errors |
 
-Remote CI/CodeQL outcomes are added after the PR's actual head is checked.
+## GitHub verification
+
+[PR #17](https://github.com/jodoy/BetStats/pull/17) code head
+`fa75c02e232da26eea4b14e36316d94fa59d461c` passed both workflows:
+
+- [CI #43](https://github.com/jodoy/BetStats/actions/runs/37920177562): Ubuntu
+  restore/build passed with 0 compiler warnings/errors; 286 unit, 20 architecture,
+  342 PostgreSQL/integration tests passed, 0 failed/skipped (648 total). Integration
+  tests took 3 minutes 28 seconds.
+- [CodeQL #41](https://github.com/jodoy/BetStats/actions/runs/37920177550): C# build
+  and analysis passed. Logs confirm successful SARIF upload and
+  `Analysis upload status is complete.`
+
+This documentation-only follow-up records those immutable run outcomes. The final
+documentation head is also checked; its exact SHA and CI/CodeQL run links are
+recorded in the PR description and visible on the PR Checks tab. No source,
+migration, test, workflow or artifact content changes in that follow-up.
 
 ## Evidence and limits
 
