@@ -1,5 +1,8 @@
 using BetStats.Application.Dashboard;
 using BetStats.Application.Evaluation;
+using BetStats.Application.Datasets;
+using BetStats.Application.Pipeline;
+using BetStats.Infrastructure.Pipeline;
 using BetStats.Domain.Governance;
 using BetStats.Web.Components;
 using Microsoft.AspNetCore.Components;
@@ -34,6 +37,16 @@ public sealed class DashboardTests(PostgreSqlFixture fixture) : IClassFixture<Po
         var scope = await s.Query(); var suffix = $"?Competition={scope.CompetitionId}&Season={scope.SeasonId}";
         var before = await s.Db.DatasetArtifacts.AsNoTracking().Select(a => a.Content).ToArrayAsync();
         var operations = await s.Db.DatasetBuildEvents.CountAsync(); var imports = await s.Db.IngestionRuns.CountAsync(); var backtests = await s.Db.BacktestOperations.CountAsync();
+        var jobs = s.Get<PostgreSqlPipeline>(); var job = Guid.NewGuid(); var approval = new PipelineApproval("test:operator", "Pending due canary must not execute on HTTP startup or GET", true);
+        await jobs.PlanAsync(job, new(1, PipelineKind.LocalSynchronization, new(await s.Now()), "{}"), approval);
+        await jobs.SetEnabledAsync(job, true, approval);
+        async Task<string> PipelineFingerprint() => CanonicalDatasetJson.Fingerprint(new {
+            Jobs = await s.Db.Set<PipelineJob>().AsNoTracking().OrderBy(x => x.Id).ToArrayAsync(),
+            Versions = await s.Db.Set<PipelineJobVersion>().AsNoTracking().OrderBy(x => x.JobId).ThenBy(x => x.Version).ToArrayAsync(),
+            Executions = await s.Db.Set<PipelineExecution>().AsNoTracking().OrderBy(x => x.Id).ToArrayAsync(),
+            Receipts = await s.Db.Set<PipelineReceipt>().AsNoTracking().OrderBy(x => x.Id).ToArrayAsync(),
+            Artifacts = await s.Db.Set<PipelineArtifact>().AsNoTracking().OrderBy(x => x.ExecutionId).ToArrayAsync() });
+        var pipelineBefore = await PipelineFingerprint();
         await using var host = new Host(fixture.GetConnectionString(), s.Root); using var client = host.CreateClient(new() { BaseAddress = new("http://localhost") });
         foreach (var route in new[] { "fixtures", "competitions", "seasons", "teams", "models", "predictions", "backtests", "quality", "provenance" })
         {
@@ -46,6 +59,7 @@ public sealed class DashboardTests(PostgreSqlFixture fixture) : IClassFixture<Po
         using var foreign = new HttpRequestMessage(HttpMethod.Get, "/api/v1/dashboard/fixtures"); foreign.Headers.Host = "evil.example"; Assert.Equal(HttpStatusCode.Forbidden, (await client.SendAsync(foreign)).StatusCode);
         var after = await s.Db.DatasetArtifacts.AsNoTracking().Select(a => a.Content).ToArrayAsync(); Assert.Equal(before.Length, after.Length); Assert.Equal(before.Select(Convert.ToHexString), after.Select(Convert.ToHexString));
         Assert.Equal(operations, await s.Db.DatasetBuildEvents.CountAsync()); Assert.Equal(imports, await s.Db.IngestionRuns.CountAsync()); Assert.Equal(backtests, await s.Db.BacktestOperations.CountAsync());
+        Assert.Equal(pipelineBefore, await PipelineFingerprint());
     }
     [Fact]
     public async Task Demo_is_opt_in_and_production_never_exposes_it()
