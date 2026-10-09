@@ -65,11 +65,14 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         await db.SaveChangesAsync(token); await tx.CommitAsync(token); return Claim(e, definition);
     }
     private static PipelineClaim Claim(PipelineExecution e, PipelineDefinition d) => new(e.Id, e.JobId, e.DefinitionVersion, e.Owner, e.PlannedUtc, e.StartedUtc, e.LeaseUntilUtc, e.Attempt, d);
+    private static bool Matches(PipelineExecution e, PipelineClaim claim) => e.JobId == claim.JobId && e.DefinitionVersion == claim.DefinitionVersion &&
+        e.Owner == claim.Owner && e.PlannedUtc == claim.PlannedUtc && e.StartedUtc == claim.StartedUtc && e.Attempt == claim.Attempt &&
+        e.Fingerprint == CanonicalDatasetJson.Fingerprint(new { e.JobId, e.DefinitionVersion, e.PlannedUtc, Definition = claim.Definition.Fingerprint });
 
     public async Task CheckAsync(PipelineClaim claim, CancellationToken token = default)
     {
         var e = await db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.Id == claim.ExecutionId, token);
-        if (e.Owner != claim.Owner || e.State != PipelineState.Running || e.LeaseUntilUtc <= await Now(token)) throw new InvalidOperationException("execution_fence_lost");
+        if (!Matches(e, claim) || e.State != PipelineState.Running || e.LeaseUntilUtc <= await Now(token)) throw new InvalidOperationException("execution_fence_lost");
         if (e.CancelRequested) throw new OperationCanceledException("operator_cancelled");
     }
 
@@ -91,7 +94,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         catch { await connection.DisposeAsync(); throw; }
     }
 
-    public async Task CompleteAsync(PipelineClaim claim, PipelineOutcome outcome, PipelineApproval approval, CancellationToken token = default, byte[]? artifact = null,
+    public async Task<PipelineOutcome> CompleteAsync(PipelineClaim claim, PipelineOutcome outcome, PipelineApproval approval, CancellationToken token = default, byte[]? artifact = null,
         Func<CancellationToken, Task>? authorizePublication = null)
     {
         approval.Validate();
@@ -100,7 +103,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
             throw new ArgumentException("Sanitized terminal outcome required.");
         db.ChangeTracker.Clear(); await using var tx = await db.Database.BeginTransactionAsync(token);
         var job = await LockJob(claim.JobId, token); var e = await LockExecution(claim.ExecutionId, token); var now = await Now(token);
-        if (e.Owner != claim.Owner || e.State != PipelineState.Running || e.LeaseUntilUtc <= now) throw new InvalidOperationException("execution_fence_lost");
+        if (!Matches(e, claim) || e.State != PipelineState.Running || e.LeaseUntilUtc <= now) throw new InvalidOperationException("execution_fence_lost");
         var terminal = e.CancelRequested ? PipelineState.Cancelled : outcome.State;
         if (artifact is not null)
         {
@@ -124,6 +127,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO pipeline.\"Diagnostics\" (\"Id\",\"ExecutionId\",\"JobId\",\"State\",\"Category\",\"DurationMilliseconds\") VALUES ({logId},{e.Id},{e.JobId},{(int)terminal},{category},{duration})", token);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM pipeline.\"Diagnostics\" WHERE \"RecordedUtc\"<clock_timestamp()-interval '30 days' OR \"Id\" IN (SELECT \"Id\" FROM pipeline.\"Diagnostics\" ORDER BY \"RecordedUtc\" DESC,\"Id\" OFFSET 1000)", token);
         await db.SaveChangesAsync(token); await tx.CommitAsync(token);
+        return outcome with { State = terminal, Category = category };
     }
 
     public async Task RenewAsync(PipelineClaim claim, CancellationToken token = default)

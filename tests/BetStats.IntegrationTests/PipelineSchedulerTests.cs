@@ -51,7 +51,8 @@ public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFi
         var claim = await Start(); await using var db = fixture.CreateContext(); var jobs = new PostgreSqlPipeline(db);
         await jobs.CancelAsync(claim.ExecutionId, Approval);
         await Assert.ThrowsAsync<OperationCanceledException>(() => jobs.CheckAsync(claim));
-        await jobs.CompleteAsync(claim, new(PipelineState.Completed, "completed"), Approval);
+        var actual = await jobs.CompleteAsync(claim, new(PipelineState.Completed, "completed"), Approval);
+        Assert.Equal(PipelineState.Cancelled, actual.State); Assert.Equal("operator_cancelled", actual.Category);
         Assert.Equal(PipelineState.Cancelled, (await db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.Id == claim.ExecutionId)).State);
         for (var attempt = 2; attempt <= 3; attempt++)
         {
@@ -64,6 +65,8 @@ public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFi
     {
         var claim = await Start(); await using var db = fixture.CreateContext(); var jobs = new PostgreSqlPipeline(db);
         var bytes = CanonicalDatasetJson.Serialize(new { Version = 1, claim.PlannedUtc, ActualCutoffUtc = claim.StartedUtc });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.CheckAsync(claim with { StartedUtc = claim.StartedUtc.AddTicks(-10) }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.CheckAsync(claim with { Definition = claim.Definition with { MaximumAttempts = 2 } }));
         var outcome = new PipelineOutcome(PipelineState.Completed, "completed", claim.ExecutionId, CanonicalDatasetJson.Hash(bytes));
         await jobs.CompleteAsync(claim, outcome, Approval, artifact: bytes);
         await Assert.ThrowsAsync<InvalidOperationException>(() => jobs.CompleteAsync(claim, outcome, Approval, artifact: bytes));

@@ -105,18 +105,18 @@ public static class PipelineOperatorCommand
         using var completion = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
-            await jobs.CompleteAsync(claim, outcome, approval, completion.Token, artifact,
+            outcome = await jobs.CompleteAsync(claim, outcome, approval, completion.Token, artifact,
                 artifact is null ? null : t => services.GetRequiredService<PipelineWork>().AuthorizePublicationAsync(claim, artifact, t));
         }
         catch (Exception error) when (error is UnauthorizedAccessException or IngestionDeniedException)
         {
             outcome = new(PipelineState.Blocked, "authorization_revoked_before_publication");
-            await jobs.CompleteAsync(claim, outcome, approval, completion.Token);
+            outcome = await jobs.CompleteAsync(claim, outcome, approval, completion.Token);
         }
         catch (InvalidDataException)
         {
             outcome = new(PipelineState.Blocked, "publication_evidence_changed");
-            await jobs.CompleteAsync(claim, outcome, approval, completion.Token);
+            outcome = await jobs.CompleteAsync(claim, outcome, approval, completion.Token);
         }
         Console.WriteLine(JsonSerializer.Serialize(new { Event = "pipeline_execution_finished", CorrelationId = claim.ExecutionId, claim.JobId, Outcome = outcome }));
         return outcome;
