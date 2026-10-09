@@ -38,6 +38,12 @@ public sealed class IdentityReview(BetStatsDbContext db) : IIdentityReview
         var sports = await db.QualityAssessments.AsNoTracking().Where(a => a.ProviderIdentityId == identity.Id && a.RuleId == "football.sport" && a.Passed)
             .Select(a => a.SportId).Distinct().OrderBy(id => id).Take(2).ToListAsync(token);
         if (sports.Count == 1) return sports[0];
+        // New historical anchors retain the parser-bound RAW context even before
+        // any canonical event exists. This establishes sport scope, never a target.
+        if (await db.IdentityResolutions.AnyAsync(d => d.ProviderIdentityId == identity.Id && d.RawPayloadId != null &&
+            db.RawPayloads.Any(r => r.Id == d.RawPayloadId && r.DataSourceId == identity.DataSourceId &&
+                r.ExternalReference == "fixture:" + BetStats.Infrastructure.Ingestion.HistoricalFootballCsvParser.Version &&
+                db.FootballRawContexts.Any(c => c.RawId == r.Id)), token)) return FootballQualityRules.Football;
         // Legacy unresolved anchors: require RAW-associated event/name observations
         // and reviewed football competition context in that same capture.
         var rawIds = db.Observations.Where(o => o.ProviderIdentityId == identity.Id && o.RawPayloadId != null).Select(o => o.RawPayloadId);

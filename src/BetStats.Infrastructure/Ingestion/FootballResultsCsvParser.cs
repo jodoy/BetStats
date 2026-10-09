@@ -60,8 +60,15 @@ public sealed class FootballResultsCsvParser : IFootballMetadataParser
     }
 }
 
-public sealed class FootballFixtureParser : IFootballMetadataParser
+public sealed class FootballFixtureParser : IVersionedFootballMetadataParser
 {
+    public FootballParseResult ParseProfile(ReadOnlyMemory<byte> bytes, FootballImportScope scope, string profile, CancellationToken cancellationToken = default) => profile switch
+    {
+        HistoricalFootballCsvParser.Version => new HistoricalFootballCsvParser().Parse(bytes, scope, cancellationToken),
+        FootballResultsCsvParser.Version => new FootballResultsCsvParser().Parse(bytes, scope, cancellationToken),
+        FootballDataCsvParser.Version => new FootballDataCsvParser().Parse(bytes, scope, cancellationToken),
+        _ => new(0, [], [new(0, "unsupported_parser_version")], CompletePayload: false, ParserVersion: profile)
+    };
     public static string Profile(ReadOnlyMemory<byte> bytes) => Encoding.UTF8.GetString(bytes.Span[..Math.Min(bytes.Length, 1024)]).Split('\n')[0].Split(',')
         .Contains("ResultBasis", StringComparer.Ordinal) ? FootballResultsCsvParser.Version : FootballDataCsvParser.Version;
     public FootballParseResult Parse(ReadOnlyMemory<byte> bytes, FootballImportScope scope, CancellationToken cancellationToken = default)

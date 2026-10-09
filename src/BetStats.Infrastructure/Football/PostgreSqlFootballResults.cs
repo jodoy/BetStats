@@ -51,7 +51,8 @@ public sealed class PostgreSqlFootballResults(BetStatsDbContext db, IRawPayloadS
                 if (raw.ByteLength is not { } length) reasons.Add("result_raw_length_missing");
                 else
                 {
-                    var parsed = new FootballResultsCsvParser().Parse(await storage.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token), scope, token);
+                    var parsed = new FootballFixtureParser().ParseProfile(await storage.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token), scope,
+                        raw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version ? HistoricalFootballCsvParser.Version : FootballResultsCsvParser.Version, token);
                     var row = parsed.Records.SingleOrDefault(x => x.MatchReference == r.SourceEventReference);
                     if (row?.Result?.Value != r.Value || row.Result.PublishedAtUtc != r.PublishedAtUtc || row.MatchDate != r.EventDate) reasons.Add("result_raw_value_mismatch");
                     else

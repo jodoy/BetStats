@@ -24,8 +24,12 @@ public sealed class FootballIngestion(AuthorizedProviderExecutor executor, IFoot
             var staged = await storage.StageAsync(content.Bytes, cancellationToken);
             var raw = await persistence.CaptureAsync(report, content, staged, scope, cancellationToken);
             await storage.FinalizeAsync(staged, cancellationToken);
+            // Parsing is a use of source data and must be authorized independently of storage.
+            await persistence.EnsureParsingAllowedAsync(report.DataSourceId, cancellationToken);
             var bytes = await storage.ReadAsync(staged, cancellationToken);
-            var parsed = parser.Parse(bytes, scope, cancellationToken);
+            var parsed = content.ParserVersion is { } profile
+                ? (parser as IVersionedFootballMetadataParser ?? throw new InvalidOperationException("Versioned parser required.")).ParseProfile(bytes, scope, profile, cancellationToken)
+                : parser.Parse(bytes, scope, cancellationToken);
             report = report with { ParsedRecords = parsed.ParsedCount, RejectedRecords = parsed.Issues.Count };
             report = await persistence.PublishAsync(report, raw, scope, parsed, cancellationToken);
             return await Finish(report);
