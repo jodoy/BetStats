@@ -76,14 +76,14 @@ public sealed class ResultOperationsWorkflowTests(PostgreSqlFixture fixture) : I
         }
         public async ValueTask DisposeAsync() { Scope.Dispose(); await Provider.DisposeAsync(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
-    internal async Task<Scenario> Create()
+    internal async Task<Scenario> Create(bool allowDisplay = false)
     {
         var root = Path.Combine(Path.GetTempPath(), "betstats-bs010-" + Guid.NewGuid().ToString("N"));
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:BetStats"] = fixture.GetConnectionString(), ["Ingestion:RawStoragePath"] = root }).Build();
         var provider = new ServiceCollection().AddPersistence(config).BuildServiceProvider(); var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BetStatsDbContext>(); var at = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync();
         var scenario = new Scenario { Provider = provider, Scope = scope, Root = root, Fixture = SyntheticResultScenario.Create(new Clock(at)) };
-        scenario.Source = await SyntheticFootballDemo.PrepareAsync(db, true, "bs010-fiction-" + Guid.NewGuid().ToString("N"), fixtureScope: scenario.Fixture.Scope);
+        scenario.Source = await SyntheticFootballDemo.PrepareAsync(db, true, "bs010-fiction-" + Guid.NewGuid().ToString("N"), allowSyntheticDisplay: allowDisplay, fixtureScope: scenario.Fixture.Scope);
         Assert.Equal(ImportOutcome.Succeeded, (await scenario.Import()).Outcome); return scenario;
     }
     [Fact]
@@ -114,9 +114,13 @@ public sealed class ResultOperationsWorkflowTests(PostgreSqlFixture fixture) : I
     public async Task Partial_and_expired_inventory_never_become_complete()
     {
         await using var s = await Create(); var first = await s.Db.FootballResults.Where(r => r.SourceId == s.Source && r.SourceEventReference == "provider:clock-result-1").Select(r => r.Id).SingleAsync();
-        var claim = await s.Claim(ResultCoverageStatus.Partial, ids: [first], until: (await s.Now()).AddSeconds(2)); Assert.True((await s.Approve(claim)).Approved);
+        // Allow publication/review queries to finish under concurrent container load before testing expiry.
+        var expires = (await s.Now()).AddSeconds(15);
+        var claim = await s.Claim(ResultCoverageStatus.Partial, ids: [first], until: expires); Assert.True((await s.Approve(claim)).Approved);
         Assert.Equal(ResultCoverageStatus.Partial, (await s.Get<IResultGovernance>().ReportAsync(await s.Coverage())).Status);
-        await Task.Delay(2100); Assert.Equal(ResultCoverageStatus.Expired, (await s.Get<IResultGovernance>().ReportAsync(await s.Coverage())).Status);
+        var remaining = expires - await s.Now();
+        if (remaining > TimeSpan.Zero) await Task.Delay(remaining + TimeSpan.FromMilliseconds(200));
+        Assert.Equal(ResultCoverageStatus.Expired, (await s.Get<IResultGovernance>().ReportAsync(await s.Coverage())).Status);
     }
     [Fact]
     public async Task Metadata_completion_on_an_unchanged_date_cannot_prove_empty_result_coverage()

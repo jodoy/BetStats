@@ -55,7 +55,7 @@ public sealed class ApiDeveloperExperienceTests
         Assert.Equal("v1", root.GetProperty("info").GetProperty("version").GetString());
         Assert.Equal("Multi-sport analytics and historical evidence API.", root.GetProperty("info").GetProperty("description").GetString());
         var paths = root.GetProperty("paths");
-        Assert.Equal(7, paths.EnumerateObject().Count());
+        Assert.Equal(16, paths.EnumerateObject().Count());
         foreach (var path in paths.EnumerateObject())
         {
             var operation = path.Value.GetProperty("get");

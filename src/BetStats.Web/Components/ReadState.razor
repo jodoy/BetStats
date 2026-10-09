@@ -1,0 +1,12 @@
+@if (Demo) { <aside class="demo" role="note">@DashboardPresentation.Text("demo", Language)</aside> }
+@if (State != "ready")
+{
+    <div class="state" role="@(State is "error" or "denied" ? "alert" : "status")" aria-live="polite">
+        @DashboardPresentation.Text(State, Language)
+    </div>
+}
+@code {
+    [Parameter] public string State { get; set; } = "loading";
+    [Parameter] public string Language { get; set; } = "pl-PL";
+    [Parameter] public bool Demo { get; set; }
+}
