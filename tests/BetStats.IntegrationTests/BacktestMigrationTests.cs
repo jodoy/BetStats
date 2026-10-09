@@ -38,6 +38,6 @@ public sealed class BacktestMigrationTests
         Assert.Equal(results.Content, migratedResult.Content); Assert.Equal(results.Hash, migratedResult.Hash); Assert.Equal(results.RecordedAtUtc, migratedResult.RecordedAtUtc);
         Assert.Empty(await db.Backtests.ToArrayAsync(timeout.Token)); Assert.Empty(await db.BacktestOperations.ToArrayAsync(timeout.Token));
         Assert.False(db.Database.HasPendingModelChanges()); Assert.Empty(await db.Database.GetPendingMigrationsAsync(timeout.Token));
-        Assert.Equal(12, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
+        Assert.Equal(13, (await db.Database.GetAppliedMigrationsAsync(timeout.Token)).Count());
     }
 }

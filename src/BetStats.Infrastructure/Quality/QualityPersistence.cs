@@ -40,7 +40,9 @@ internal static class QualityPersistence
         db.IdentityResolutions.AsNoTracking().Where(d => d.ProviderIdentityId == identity && d.RecordedAtUtc <= now && d.DecidedAtUtc <= now).OrderByDescending(d => d.Version).FirstOrDefaultAsync(token);
     public static async Task<bool> ReceiptExists(BetStatsDbContext db, RawPayload raw, FootballImportScope scope, FootballMatchRecord row, DateTime now, CancellationToken token)
     {
-        var batch = FootballPublicationKeys.Batch(scope, raw.ContentHashSha256, row.Result is null ? FootballDataCsvParser.Version : FootballResultsCsvParser.Version);
+        var profile = raw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version ? HistoricalFootballCsvParser.Version
+            : row.Result is null ? FootballDataCsvParser.Version : FootballResultsCsvParser.Version;
+        var batch = FootballPublicationKeys.Batch(scope, raw.ContentHashSha256, profile);
         if (await db.IngestionPublications.AnyAsync(p => p.DataSourceId == raw.DataSourceId && p.Key == batch && p.IsBatch, token)) return true;
         var targets = new List<Guid>();
         foreach (var reference in new[] { (CanonicalEntityKind.Competition, "provider:competition:" + row.CompetitionReference),

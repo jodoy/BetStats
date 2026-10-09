@@ -18,7 +18,7 @@ using BetStats.Application.Football;
 
 namespace BetStats.Infrastructure.Ingestion;
 
-public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISourcePolicyEvaluator policies, ISourceOperationalStatus sourceStatus, IRawPayloadStore? rawStore = null) : IFootballIngestionPersistence
+public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISourcePolicyEvaluator policies, ISourceOperationalStatus sourceStatus, IRawPayloadStore? rawStore = null, FootballImportOwnership? ownership = null) : IFootballIngestionPersistence
 {
     private static readonly Guid Football = ReferenceSports.All.Single(s => s.Code == "football").Id;
     private Guid? lastPolicy;
@@ -28,6 +28,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
 
     public async Task<ImportReport> BeginAsync(Guid attemptId, Guid sourceId, CancellationToken cancellationToken)
     {
+        if (ownership?.OperationId is not null) ownership.AttemptId = attemptId;
         context.ChangeTracker.Clear();
         lastPolicy = null; lastApproval = null; issues = [];
         var now = await Now(cancellationToken);
@@ -40,6 +41,8 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         context.Add(Audit(report, 1, now)); await context.SaveChangesAsync(cancellationToken); return report;
     }
     public Task EnsureCaptureAllowedAsync(Guid sourceId, CancellationToken cancellationToken) => Guard(sourceId, [DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention], cancellationToken);
+    public Task EnsureParsingAllowedAsync(Guid sourceId, CancellationToken cancellationToken) => Guard(sourceId,
+        [DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics], cancellationToken);
     private async Task Guard(Guid sourceId, DataPurpose[] purposes, CancellationToken token)
     {
         var status = await sourceStatus.ReadAsync(sourceId, token);
@@ -64,11 +67,12 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         await LockSource(attempt.DataSourceId, cancellationToken);
+        if (ownership is not null) await ownership.EnsureAsync(context, cancellationToken);
         await Guard(attempt.DataSourceId, [DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention], cancellationToken);
         var now = await Now(cancellationToken);
         var raw = new RawPayload { Id = Guid.NewGuid(), DataSourceId = attempt.DataSourceId, IngestionRunId = attempt.RunId,
             RetrievedAtUtc = content.RetrievedAtUtc, CreatedAtUtc = now, ContentType = content.ContentType, ContentHashSha256 = payload.Hash,
-            StorageKey = payload.StorageKey, ByteLength = payload.Length, ExternalReference = "fixture:" + FootballFixtureParser.Profile(content.Bytes) };
+            StorageKey = payload.StorageKey, ByteLength = payload.Length, ExternalReference = "fixture:" + (content.ParserVersion ?? FootballFixtureParser.Profile(content.Bytes)) };
         context.Add(raw);
         context.FootballRawContexts.Add(new() { RawId = raw.Id, SourceId = raw.DataSourceId, CompetitionReference = scope.CompetitionReference, SeasonReference = scope.SeasonReference });
         await Save(cancellationToken); await transaction.CommitAsync(cancellationToken);
@@ -77,11 +81,12 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
 
     public async Task<ImportReport> PublishAsync(ImportReport attempt, RawCapture raw, FootballImportScope scope, FootballParseResult parsed, CancellationToken cancellationToken)
     {
-        if (parsed.ParserVersion is not (FootballDataCsvParser.Version or FootballResultsCsvParser.Version)) throw new IngestionDeniedException("unsupported_parser_version", "Provenance");
-        if (parsed.ParserVersion == FootballResultsCsvParser.Version)
+        if (parsed.ParserVersion is not (FootballDataCsvParser.Version or FootballResultsCsvParser.Version or HistoricalFootballCsvParser.Version)) throw new IngestionDeniedException("unsupported_parser_version", "Provenance");
+        if (parsed.ParserVersion is FootballResultsCsvParser.Version or HistoricalFootballCsvParser.Version)
         {
             await EnsureCaptureAllowedAsync(attempt.DataSourceId, cancellationToken);
-            var verified = new FootballResultsCsvParser().Parse(await (rawStore ?? throw new IngestionDeniedException("result_raw_store_required")).ReadAsync(raw.Object, cancellationToken), scope, cancellationToken);
+            await EnsureParsingAllowedAsync(attempt.DataSourceId, cancellationToken);
+            var verified = new FootballFixtureParser().ParseProfile(await (rawStore ?? throw new IngestionDeniedException("result_raw_store_required")).ReadAsync(raw.Object, cancellationToken), scope, parsed.ParserVersion, cancellationToken);
             // Reconciliation can select a subset, but may never invent result values.
             if (parsed.Records.Any(r => !verified.Records.Contains(r))) throw new IngestionDeniedException("result_raw_mismatch", "Provenance");
             if (parsed.CompletePayload && (!parsed.Records.SequenceEqual(verified.Records) || !parsed.Issues.SequenceEqual(verified.Issues))) throw new IngestionDeniedException("result_incomplete_publication", "Provenance");
@@ -89,6 +94,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         else if (parsed.Records.Any(r => r.Result is not null)) throw new IngestionDeniedException("result_parser_version_mismatch", "Provenance");
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
         await LockSource(attempt.DataSourceId, cancellationToken);
+        if (ownership is not null) await ownership.EnsureAsync(context, cancellationToken);
         await Guard(attempt.DataSourceId, [DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics], cancellationToken);
         var storedRaw = await context.RawPayloads.AsNoTracking().SingleOrDefaultAsync(r => r.Id == raw.Id, cancellationToken);
         if (storedRaw is null || storedRaw.DataSourceId != attempt.DataSourceId || storedRaw.StorageKey != raw.Object.StorageKey ||
@@ -96,6 +102,8 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             storedRaw.RetrievedAtUtc != raw.RetrievedAtUtc || storedRaw.CreatedAtUtc != raw.CreatedAtUtc || storedRaw.RecordedAtUtc != raw.RecordedAtUtc)
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
         var original = await FootballContext.ReadAsync(context, storedRaw, scope, cancellationToken);
+        if ((parsed.ParserVersion == HistoricalFootballCsvParser.Version || storedRaw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version) &&
+            storedRaw.ExternalReference != "fixture:" + parsed.ParserVersion) throw new IngestionDeniedException("raw_parser_profile_mismatch", "Provenance");
         if (original != scope) throw new IngestionDeniedException("original_scope_mismatch", "Provenance");
         var key = FootballPublicationKeys.Batch(scope, raw.Object.Hash, parsed.ParserVersion);
         var previous = await context.IngestionPublications.SingleOrDefaultAsync(r => r.DataSourceId == attempt.DataSourceId && r.Key == key, cancellationToken);
@@ -113,7 +121,10 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
         foreach (var record in parsed.Records)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var historicalIdentity = parsed.ParserVersion == HistoricalFootballCsvParser.Version
+                ? await Anchor(CanonicalEntityKind.SportingEvent, record.MatchReference) : null;
             var assessment = await QualityPersistence.Assess(context, storedRaw, record, now, cancellationToken);
+            if (historicalIdentity is not null) assessment = (historicalIdentity.Id, assessment.Issues);
             FootballResultObservation? previousResult = null;
             if (record.Result is { } input)
             {
@@ -140,6 +151,12 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             var eventAnchor = await Anchor(CanonicalEntityKind.SportingEvent, record.MatchReference);
             var competitionDecision = await Decision(competitionAnchor); var seasonDecision = await Decision(seasonAnchor);
             var homeDecision = await Decision(homeAnchor); var awayDecision = await Decision(awayAnchor); var eventDecision = await Decision(eventAnchor);
+            if (parsed.ParserVersion == HistoricalFootballCsvParser.Version && new[] { competitionDecision, seasonDecision, homeDecision, awayDecision, eventDecision }
+                .Any(d => d?.Status != ResolutionStatus.Resolved || d.DecidedBy.StartsWith("ingestion:", StringComparison.Ordinal)))
+            {
+                unresolved.Add(eventAnchor.Id); rowIssues.Add($"{record.Row}:reviewed_identity_required");
+                continue;
+            }
             var competition = competitionDecision?.CanonicalCompetitionId is { } competitionId ? await context.Competitions.SingleAsync(c => c.Id == competitionId, cancellationToken) : null;
             var season = seasonDecision?.CanonicalSeasonId is { } seasonId ? await context.Seasons.SingleAsync(s => s.Id == seasonId, cancellationToken) : null;
             var home = homeDecision?.CanonicalParticipantId is { } homeId ? await context.Participants.SingleAsync(p => p.Id == homeId, cancellationToken) : null;
@@ -162,7 +179,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
                 else
                 {
                     // No scheduling/status guess: only create events whose source establishes completion.
-                    if (record.Status == SportingEventStatus.Completed || record.Result is not null)
+                    if (parsed.ParserVersion != HistoricalFootballCsvParser.Version && (record.Status == SportingEventStatus.Completed || record.Result is not null))
                     {
                         sportingEvent = new SportingEvent(Guid.NewGuid(), competition, season, null, record.Status ?? SportingEventStatus.Completed, now);
                         sportingEvent.AddParticipant(home, ParticipantRole.Home, 1); sportingEvent.AddParticipant(away, ParticipantRole.Away, 2); context.Add(sportingEvent);
@@ -193,6 +210,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
             }
         }
         issues = rowIssues.ToArray();
+        if (ownership is not null) await ownership.EnsureAsync(context, cancellationToken);
         await Save(cancellationToken);
         var outcome = issues.Length == 0 && unresolved.Count == 0 ? ImportOutcome.Succeeded : ImportOutcome.Partial;
         if (outcome == ImportOutcome.Succeeded && parsed.CompletePayload)

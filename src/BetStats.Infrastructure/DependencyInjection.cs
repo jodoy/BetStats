@@ -28,6 +28,8 @@ public static class DependencyInjection
         services.AddScoped<AuthorizedProviderExecutor>();
         services.AddScoped<IFootballIngestionPersistence, FootballIngestionPersistence>();
         services.AddScoped<FootballIngestion>();
+        services.AddScoped<FootballImportOperations>();
+        services.AddScoped<FootballImportOwnership>();
         services.AddScoped<BetStats.Application.Football.IFootballResults, BetStats.Infrastructure.Football.PostgreSqlFootballResults>();
         services.AddScoped<BetStats.Application.Football.IFootballResultDatasets, BetStats.Infrastructure.Football.PostgreSqlFootballResultDatasets>();
         services.AddScoped<BetStats.Application.Football.IResultGovernance, BetStats.Infrastructure.Football.PostgreSqlResultGovernance>();

@@ -2,7 +2,7 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-012 bounded historical Elo/Poisson models, optional Dixon-Coles, mathematical simulations and fenced backtests; live provider access disabled.
+> **Status:** BS-013 authorized local football history, reviewed identities, RAW provenance and explicit fenced imports; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Real providers, trained predictions,
@@ -23,6 +23,12 @@ See [historical integrity, API setup and security boundaries](docs/en/data/histo
 and [ADR 0022](docs/adr/0022-historical-integrity-and-development-api.md).
 
 ## Product boundary
+
+[BS-013 authorized football history runbook](docs/en/data/real-football-history.md)
+documents the versioned local CSV profile, explicit source permissions, planning,
+identity review, corrections, recovery and readiness exclusions. No real provider
+grant or real data fixture is bundled. See [ADR 0027](docs/adr/0027-real-football-data-provenance.md)
+and the [Polish runbook](docs/pl/data/real-football-history.md).
 
 [BS-012 football models and walk-forward runbook](docs/en/data/football-models.md)
 documents explicit model parameters, warm-up exclusions and equivalent-event comparisons.

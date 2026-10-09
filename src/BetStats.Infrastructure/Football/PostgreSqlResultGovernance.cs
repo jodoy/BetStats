@@ -111,7 +111,10 @@ public sealed class PostgreSqlResultGovernance(BetStatsDbContext db, IFootballRe
             var binding = await FootballContext.ReadAsync(db, raw, new(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference), token, q.AsOfUtc);
             if (binding != new FootballImportScope(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference)) continue;
             var identity = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == date.ProviderIdentityId, token);
-            var parsed = new FootballFixtureParser().Parse(await Bytes(raw, q.AsOfUtc, q.Purpose, q.Context, q.ReconstructionAtUtc ?? q.AsOfUtc, token), binding, token);
+            var bytes = await Bytes(raw, q.AsOfUtc, q.Purpose, q.Context, q.ReconstructionAtUtc ?? q.AsOfUtc, token);
+            var parsed = raw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version
+                ? new FootballFixtureParser().ParseProfile(bytes, binding, HistoricalFootballCsvParser.Version, token)
+                : new FootballFixtureParser().Parse(bytes, binding, token);
             var row = parsed.Records.SingleOrDefault(r => r.MatchReference == identity.ExternalId);
             if (row is null) return false;
             if (evidence.Scope.ParticipantId is { } participant)

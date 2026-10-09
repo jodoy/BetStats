@@ -19,6 +19,12 @@ Every provider integrated with BetStats must declare, at minimum:
 
 Technical accessibility is not evidence of permission.
 
+BS-013's `football-history-v1` capability is a technical schema contract, not a
+provider license or grant. Local files require current reviewed retrieval, RAW
+storage, retention and analytics rights before access. Tests contain only
+project-authored fictional bytes. No real transport or third-party fixture is
+enabled. See [the operator runbook](docs/en/data/real-football-history.md).
+
 ## Public repository rule
 
 Do not commit:

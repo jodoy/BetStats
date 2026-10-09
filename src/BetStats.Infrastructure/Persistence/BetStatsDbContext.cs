@@ -11,6 +11,7 @@ namespace BetStats.Infrastructure.Persistence;
 
 public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> options) : DbContext(options)
 {
+    public DbSet<FootballImportOperation> FootballImportOperations => Set<FootballImportOperation>();
     public DbSet<BacktestArtifact> Backtests => Set<BacktestArtifact>();
     public DbSet<BacktestOperationEvent> BacktestOperations => Set<BacktestOperationEvent>();
     public DbSet<BetStats.Domain.Football.ResultInventoryEvidence> ResultInventory => Set<BetStats.Domain.Football.ResultInventoryEvidence>();
@@ -48,6 +49,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        FootballImportOperationConfiguration.Configure(modelBuilder);
         modelBuilder.HasDefaultSchema("ingestion");
 
         var sources = modelBuilder.Entity<DataSource>();
@@ -133,7 +135,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         {
             if (entry.Entity is BacktestArtifact or BacktestOperationEvent && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Backtests and operation history are append-only.");
-            if (entry.Entity is BetStats.Domain.Football.ResultInventoryEvidence or BetStats.Domain.Football.ResultInventoryReview or BetStats.Domain.Football.EventEndEvidence or ResultOperationEvent && entry.State is EntityState.Modified or EntityState.Deleted)
+            if (entry.Entity is BetStats.Domain.Football.ResultInventoryEvidence or BetStats.Domain.Football.ResultInventoryReview or BetStats.Domain.Football.EventEndEvidence or ResultOperationEvent or FootballImportOperation && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Result governance and operations are append-only.");
             if (entry.Entity is BetStats.Domain.Football.FootballResultObservation or FootballResultArtifact && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Football results and artifacts are append-only.");

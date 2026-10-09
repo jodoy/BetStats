@@ -20,7 +20,11 @@ public interface IFootballMetadataParser
 {
     FootballParseResult Parse(ReadOnlyMemory<byte> bytes, FootballImportScope scope, CancellationToken cancellationToken = default);
 }
-public sealed record RetrievedContent(ReadOnlyMemory<byte> Bytes, string ContentType, DateTime RetrievedAtUtc);
+public interface IVersionedFootballMetadataParser : IFootballMetadataParser
+{
+    FootballParseResult ParseProfile(ReadOnlyMemory<byte> bytes, FootballImportScope scope, string profile, CancellationToken cancellationToken = default);
+}
+public sealed record RetrievedContent(ReadOnlyMemory<byte> Bytes, string ContentType, DateTime RetrievedAtUtc, string? ParserVersion = null);
 public interface IContentProviderAdapter : IProviderAdapter
 {
     RetrievedContent? Content { get; }
@@ -51,6 +55,7 @@ public interface IFootballIngestionPersistence
 {
     Task<ImportReport> BeginAsync(Guid attemptId, Guid sourceId, CancellationToken cancellationToken);
     Task EnsureCaptureAllowedAsync(Guid sourceId, CancellationToken cancellationToken);
+    Task EnsureParsingAllowedAsync(Guid sourceId, CancellationToken cancellationToken) => EnsureCaptureAllowedAsync(sourceId, cancellationToken);
     Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, FootballImportScope scope, CancellationToken cancellationToken);
     Task<ImportReport> PublishAsync(ImportReport attempt, RawCapture raw, FootballImportScope scope, FootballParseResult parsed, CancellationToken cancellationToken);
     Task CompleteAsync(ImportReport report, CancellationToken cancellationToken);

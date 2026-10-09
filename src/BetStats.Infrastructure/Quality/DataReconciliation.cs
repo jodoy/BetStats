@@ -22,7 +22,7 @@ public sealed class DataReconciliation(BetStatsDbContext db, IRawPayloadStore st
     {
         if (await sources.ReadAsync(source, token) != SourceOperationalStatus.Enabled) throw new IngestionDeniedException("source_disabled_or_missing");
         var now = await QualityPersistence.Now(db, token); Guid? policy = null;
-        foreach (var purpose in new[] { DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics })
+        foreach (var purpose in new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics })
         {
             var evaluation = await policies.EvaluateAsync(source, purpose, now, new(), token);
             if (!evaluation.Allowed) throw new IngestionDeniedException("policy_" + evaluation.Reason);
@@ -52,7 +52,9 @@ public sealed class DataReconciliation(BetStatsDbContext db, IRawPayloadStore st
                 catch (Exception error) when (error is IOException or InvalidDataException or ArgumentException) { items.Add(new(raw.Id, 0, ReconciliationOutcome.Failed, "raw_integrity_or_storage")); await RawFailure(execution, raw.Id, operatorId, reason, "raw_integrity_or_storage", token); continue; }
                 var original = await FootballContext.ReadAsync(db, raw, request.Scope, token);
                 if (original != request.Scope) throw new IngestionDeniedException("original_scope_mismatch", "Provenance");
-                var parsed = parser.Parse(bytes, original, token);
+                var parsed = raw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version
+                    ? (parser as IVersionedFootballMetadataParser ?? throw new InvalidOperationException("Versioned parser required.")).ParseProfile(bytes, original, HistoricalFootballCsvParser.Version, token)
+                    : parser.Parse(bytes, original, token);
                 var selected = new List<FootballMatchRecord>();
                 await using (var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token))
                 {
@@ -66,7 +68,7 @@ public sealed class DataReconciliation(BetStatsDbContext db, IRawPayloadStore st
                         .OrderBy(d => d.ProviderIdentityId).Select(d => new { d.ProviderIdentityId, d.Id, d.Version }).Take(25001).ToListAsync(token);
                     if (review.Count > 25000) throw new InvalidOperationException("Review context exceeds bound.");
                     var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { raw.Id, raw.ContentHashSha256,
-                        request.Scope, Parser = FootballDataCsvParser.Version, Rules = FootballQualityRules.Version, Review = review }))));
+                        request.Scope, Parser = parsed.ParserVersion, Rules = FootballQualityRules.Version, Review = review }))));
                     foreach (var issue in QualityPersistence.ExpandIssues(parsed))
                     {
                         var q = FootballQualityRules.ParseIssue(issue.Code);
