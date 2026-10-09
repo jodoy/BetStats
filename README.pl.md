@@ -2,7 +2,7 @@
 
 Wielosportowa platforma danych, predykcji probabilistycznych, symulacji oraz operacji wspomaganych przez AI.
 
-> **Status:** BS-011 — niezmienne symulacje historyczne, syntetyczne baseline'y, metryki i jawne recovery backtestów; realny provider pozostaje wyłączony.
+> **Status:** BS-012 — historyczne modele Elo/Poisson w ograniczonym oknie, opcjonalny Dixon-Coles, symulacje matematyczne i jawne backtesty; realny provider pozostaje wyłączony.
 > PostgreSQL przechowuje metadane ingestion, encje sportowe, wersjonowane polityki,
 > audyt decyzji tożsamości i niezmienne obserwacje z paginacją. API liveness, Web i host Workera
 > pozostają minimalne. Realne providery, wytrenowane predykcje, uwierzytelnianie
@@ -22,6 +22,11 @@ Dokumentacja działa tylko w Development. Publiczne odczyty: liveness i własny 
 [Integralność historyczna, konfiguracja i granice API](docs/pl/data/historical-integrity-development-api.md).
 
 ## Granica produktu
+
+[BS-012: modele piłkarskie i walk-forward](docs/pl/data/football-models.md)
+opisuje parametry, rozgrzewanie, wykluczenia i porównania na wspólnych wydarzeniach.
+Bez deklaracji realnej skuteczności ani skalibrowanego ensemble.
+[ADR 0026](docs/adr/0026-football-prediction-models.md).
 
 [BS-011: backtesting i polecenia operatora](docs/pl/data/historical-backtesting.md)
 opisuje syntetyczne predykcje i niezmienne raporty. Brak dowodów daje wykluczenia

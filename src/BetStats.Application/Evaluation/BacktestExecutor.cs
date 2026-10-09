@@ -16,19 +16,32 @@ public sealed class BacktestExecutor(IHistoricalPredictionProvider predictor)
             definition.Evaluations.Any(e => e.SportId != d.SportId) || definition.EvaluationCutoffUtc < d.AsOfUtc)
             throw new InvalidDataException("Backtest dataset, predictor, scope or historical feature boundary mismatch.");
         var predictions = new List<HistoricalPrediction>(); var samples = new List<BacktestSample>();
-        foreach (var row in features.Manifest.Rows.OrderBy(r => r.Metadata.EventId))
+        var forecasts = new List<Models.ModelForecast>();
+        foreach (var row in definition.Version == 1 ? features.Manifest.Rows.OrderBy(r => r.Metadata.EventId) : features.Manifest.Rows.OrderBy(r => r.Metadata.PredictionCutoffUtc).ThenBy(r => r.Metadata.EventId))
         {
             var mg = features.Manifest.MetadataManifest.Governance?.Rows.SingleOrDefault(g => g.EventId == row.Metadata.EventId);
             var input = BacktestRules.Input(row, mg);
+            Models.ModelProvenance? model = null;
+            if (definition.Model is { } modelDefinition)
+            {
+                input = Models.FootballModelInputs.From(row, input, d.SeasonId);
+                if (predictor is not Models.IHistoricalFootballPredictionProvider modelProvider || CanonicalDatasetJson.Fingerprint(modelProvider.Definition) != CanonicalDatasetJson.Fingerprint(modelDefinition))
+                    throw new InvalidDataException("Prediction port model definition mismatch.");
+                model = modelProvider.Simulate(input);
+                forecasts.Add(new(input.EventId, input.CutoffUtc, model));
+            }
             var later = evaluationEvidence.Rows.Single(r => r.Metadata.EventId == input.EventId);
             if (later.FeatureHash != row.FeatureHash || CanonicalDatasetJson.Fingerprint(later.Metadata) != CanonicalDatasetJson.Fingerprint(row.Metadata)) throw new InvalidDataException("Evaluation cannot mutate prediction features.");
             foreach (var e in definition.Evaluations.OrderBy(e => e.Target))
             {
-                var value = predictor.Predict(input, e.Target); BacktestRules.Validate(value, e.Target);
-                var prediction = new HistoricalPrediction(1, input.EventId, input.CutoffUtc, predictor.Name, predictor.Version, features.Id, features.Hash,
-                    input.FeatureHash, CanonicalDatasetJson.Fingerprint(input), e.Target, value, input.EvidenceIds);
+                var value = model is null ? predictor.Predict(input, e.Target) : (e.Target is EvaluationTarget.FirstHalfGoalOccurrence or EvaluationTarget.FirstHalfTotalGoals ? model.HalfTime : model.FullTime).Predict(e.Target);
+                BacktestRules.Validate(value, e.Target);
+                var prediction = new HistoricalPrediction(model is null ? 1 : 2, input.EventId, input.CutoffUtc, predictor.Name, predictor.Version, features.Id, features.Hash,
+                    input.FeatureHash, CanonicalDatasetJson.Fingerprint(input), e.Target, value, input.EvidenceIds, model is null ? null : Models.PredictionModelProvenance.From(model));
                 predictions.Add(prediction);
                 var reasons = new List<string>(); var query = later.LabelEvidence.Query;
+                if (model is not null && !model.Warmed) reasons.Add("model_full_time_warmup_insufficient");
+                if (model is not null && (e.Target is EvaluationTarget.FirstHalfGoalOccurrence or EvaluationTarget.FirstHalfTotalGoals) && !model.HalfWarmed) reasons.Add("model_first_half_warmup_insufficient");
                 if (query.AsOfUtc != definition.EvaluationCutoffUtc || query.Mode != e.Mode || query.ReconstructionAtUtc != e.ReconstructionUtc || query.IncludeSuperseded ||
                     query.EventId != input.EventId || query.SourceId != row.Metadata.Target.SourceId || query.CompetitionId != d.CompetitionId || query.SeasonId != d.SeasonId)
                     throw new InvalidDataException("Label interpretation boundary mismatch.");
@@ -84,7 +97,8 @@ public sealed class BacktestExecutor(IHistoricalPredictionProvider predictor)
             }
         }
         return new(1, 1, definition, CanonicalDatasetJson.Fingerprint(definition), "historical-simulation-not-live-prediction", predictions, samples, evaluationEvidence,
-            new(1, BacktestMetrics.Version, BacktestMetrics.Semantics, definition.Evaluations.OrderBy(e => e.Target).Select(e => BacktestMetrics.Compute(e, samples)).ToArray()));
+            new(1, BacktestMetrics.Version, BacktestMetrics.Semantics, definition.Evaluations.OrderBy(e => e.Target).Select(e => BacktestMetrics.Compute(e, samples)).ToArray()),
+            WalkForward: definition.Model is null ? null : Models.WalkForwardReport.From(predictions), ModelForecasts: definition.Model is null ? null : forecasts);
     }
     private static FeatureCoverageOutcome FeatureCoverage(FeatureCoverageRequirement requirement, DatasetDefinition d, DatasetRow row, DatasetGovernanceRow? frozen)
     {

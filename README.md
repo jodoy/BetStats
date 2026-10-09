@@ -2,7 +2,7 @@
 
 Multi-sport data, probabilistic prediction, simulation and AI-assisted operations platform.
 
-> **Status:** BS-011 immutable historical simulations, synthetic baselines, deterministic metrics and explicit backtest recovery; live provider access disabled.
+> **Status:** BS-012 bounded historical Elo/Poisson models, optional Dixon-Coles, mathematical simulations and fenced backtests; live provider access disabled.
 > PostgreSQL stores ingestion metadata, generic sports entities, versioned policies,
 > audited identity decisions and immutable observations with bounded history. API liveness, Web placeholder
 > and Worker host remain minimal. Real providers, trained predictions,
@@ -23,6 +23,11 @@ See [historical integrity, API setup and security boundaries](docs/en/data/histo
 and [ADR 0022](docs/adr/0022-historical-integrity-and-development-api.md).
 
 ## Product boundary
+
+[BS-012 football models and walk-forward runbook](docs/en/data/football-models.md)
+documents explicit model parameters, warm-up exclusions and equivalent-event comparisons.
+No calibrated ensemble or real-world predictive performance is claimed.
+See [ADR 0026](docs/adr/0026-football-prediction-models.md).
 
 [BS-011 historical backtesting and operator runbook](docs/en/data/historical-backtesting.md)
 describes synthetic predictions and immutable evaluation reports. Strict historical

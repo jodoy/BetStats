@@ -16,7 +16,7 @@ namespace BetStats.IntegrationTests;
 public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private Task<ResultOperationsWorkflowTests.Scenario> Create() => new ResultOperationsWorkflowTests(fixture).Create();
-    private static async Task<BacktestDefinition> Definition(ResultOperationsWorkflowTests.Scenario s)
+    internal static async Task<BacktestDefinition> Definition(ResultOperationsWorkflowTests.Scenario s, bool model = false)
     {
         var dataset = await s.Get<IResultDatasetOperations>().BuildAsync(new(Guid.NewGuid(), await s.Request(), "operator", "Freeze BS011 fictional feature input", true));
         Assert.Equal(ResultOperationStatus.Succeeded, dataset.Status);
@@ -26,11 +26,12 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
             ["features", "event-time", "quality", "coverage", "source-policy"], t.ToString(), 1,
             new("result", 1, [ObservationType.EventDate], 30, false, "Completed", 1, false, true),
             EvaluationContracts.Metrics.Where(m => BacktestRules.Count(t) ? m.Name == "mae" : t == EvaluationTarget.MatchWinner ? m.Name != "mae" && m.Name != "calibration_error" : m.Name != "mae").ToArray())).ToArray();
-        return new(1, snapshot.Id, snapshot.Hash, "synthetic-constant", 1, await s.Now(), evaluations);
+        var configured = model ? new BetStats.Application.Models.FootballModelDefinition(1, BetStats.Application.Models.FootballModelKind.Poisson, new(), new()) : null;
+        return new(model ? 2 : 1, snapshot.Id, snapshot.Hash, configured?.Predictor ?? "synthetic-constant", 1, await s.Now(), evaluations, configured);
     }
-    [Fact] public async Task Planning_is_read_only_and_running_freezes_honest_empty_metrics()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Planning_is_read_only_and_running_freezes_honest_empty_metrics(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var ops = s.Get<IHistoricalBacktests>();
+        await using var s = await Create(); var d = await Definition(s, model); var ops = s.Get<IHistoricalBacktests>();
         var datasetBefore = await s.Db.FootballResultArtifacts.AsNoTracking().SingleAsync(a => a.Id == d.DatasetId);
         var plan = await ops.PlanAsync(d); Assert.Empty(await s.Db.BacktestOperations.Where(e => e.Fingerprint == CanonicalDatasetJson.Fingerprint(d)).ToArrayAsync()); Assert.Empty(await s.Db.Backtests.Where(a => a.DatasetId == d.DatasetId).ToArrayAsync());
         Assert.Equal(6, plan.Predictions.Count); Assert.All(plan.Samples, x => Assert.False(x.Eligible));
@@ -44,9 +45,9 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         var after = await s.Db.FootballResultArtifacts.AsNoTracking().SingleAsync(a => a.Id == d.DatasetId);
         Assert.Equal(datasetBefore.Content, after.Content); Assert.Equal(datasetBefore.Hash, after.Hash); Assert.Equal(datasetBefore.RecordedAtUtc, after.RecordedAtUtc);
     }
-    [Fact] public async Task Concurrent_runs_publish_one_artifact_and_one_terminal_append()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Concurrent_runs_publish_one_artifact_and_one_terminal_append(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var request = new BacktestRequest(Guid.NewGuid(), d, "operator", "Concurrent requests", true);
+        await using var s = await Create(); var d = await Definition(s, model); var request = new BacktestRequest(Guid.NewGuid(), d, "operator", "Concurrent requests", true);
         using var left = s.Provider.CreateScope(); using var right = s.Provider.CreateScope();
         var reports = await Task.WhenAll(left.ServiceProvider.GetRequiredService<IHistoricalBacktests>().RunAsync(request), right.ServiceProvider.GetRequiredService<IHistoricalBacktests>().RunAsync(request));
         Assert.Contains(reports, r => r.Status == ResultOperationStatus.Succeeded);
@@ -54,10 +55,10 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         Assert.Equal(1, await s.Db.Backtests.CountAsync(a => a.DatasetId == d.DatasetId)); Assert.Equal(3, await s.Db.BacktestOperations.CountAsync(e => e.OperationId == request.OperationId));
         await Assert.ThrowsAsync<InvalidOperationException>(() => s.Get<IHistoricalBacktests>().RunAsync(request with { Definition = d with { EvaluationCutoffUtc = d.EvaluationCutoffUtc.AddTicks(10) } }));
     }
-    [Theory] [InlineData(false)] [InlineData(true)]
-    public async Task Missing_or_corrupt_raw_fails_run_and_can_be_explicitly_recovered(bool corrupt)
+    [Theory] [InlineData(false, false)] [InlineData(true, false)] [InlineData(false, true)] [InlineData(true, true)]
+    public async Task Missing_or_corrupt_raw_fails_run_and_can_be_explicitly_recovered(bool corrupt, bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var ops = s.Get<IHistoricalBacktests>(); var raw = await s.Db.RawPayloads.FirstAsync(r => r.DataSourceId == s.Source);
+        await using var s = await Create(); var d = await Definition(s, model); var ops = s.Get<IHistoricalBacktests>(); var raw = await s.Db.RawPayloads.FirstAsync(r => r.DataSourceId == s.Source);
         var path = Path.Combine(s.Root, raw.StorageKey + ".raw"); var bytes = await File.ReadAllBytesAsync(path);
         if (corrupt) await File.WriteAllTextAsync(path, "damaged"); else File.Delete(path);
         var operation = Guid.NewGuid(); var failed = await ops.RunAsync(new(operation, d, "operator", "Known damaged input", true)); Assert.Equal(ResultOperationStatus.Failed, failed.Status); Assert.Null(failed.SnapshotId);
@@ -68,9 +69,9 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         var verify = await ops.VerifyAsync(recovered.SnapshotId!.Value, true); Assert.True(verify.Integrity && verify.Reproducible); Assert.False(verify.RawHashVerified);
         if (!corrupt) Assert.False(verify.RawAvailable);
     }
-    [Fact] public async Task Revocation_denies_plan_run_inspection_replay_recovery_and_raw_read()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Revocation_denies_plan_run_inspection_replay_recovery_and_raw_read(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var ops = s.Get<IHistoricalBacktests>(); var operation = Guid.NewGuid();
+        await using var s = await Create(); var d = await Definition(s, model); var ops = s.Get<IHistoricalBacktests>(); var operation = Guid.NewGuid();
         var built = await ops.RunAsync(new(operation, d, "operator", "Before revoke", true)); Assert.Equal(ResultOperationStatus.Succeeded, built.Status);
         var policy = await s.Db.SourcePolicies.Include(p => p.Audit).Include(p => p.Permissions).SingleAsync(p => p.DataSourceId == s.Source);
         policy.Revoke(Guid.NewGuid(), "operator", "Explicit usage revocation", await s.Now()); await s.Db.SaveChangesAsync();
@@ -90,9 +91,9 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
             Fingerprint = fingerprint, Request = bytes, OwnerToken = Guid.NewGuid(), LeaseUntilUtc = (await s.Now()).Add(lease), OperatorId = "operator", Reason = "Recorded stopped owner" };
         s.Db.Add(running); await s.Db.SaveChangesAsync(); return running;
     }
-    [Fact] public async Task Recovery_cannot_steal_live_owner_and_fences_stale_terminal_writes()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Recovery_cannot_steal_live_owner_and_fences_stale_terminal_writes(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var operation = Guid.NewGuid(); var running = await Interrupted(s, d, operation, TimeSpan.FromSeconds(2));
+        await using var s = await Create(); var d = await Definition(s, model); var operation = Guid.NewGuid(); var running = await Interrupted(s, d, operation, TimeSpan.FromSeconds(2));
         var ops = s.Get<IHistoricalBacktests>(); var recovery = new ResultRecoveryRequest(operation, running.Fingerprint, "operator", "Explicit recovery", true);
         Assert.Equal(ResultOperationStatus.Running, (await ops.RecoverAsync(recovery)).Status);
         await Assert.ThrowsAsync<InvalidOperationException>(() => ops.RecoverAsync(recovery with { ExpectedFingerprint = new('a', 64) }));
@@ -113,9 +114,9 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
             Fingerprint = running.Fingerprint, Request = running.Request, OwnerToken = running.OwnerToken, OperatorId = "operator", Reason = "Rejected stale owner" });
         await Assert.ThrowsAsync<DbUpdateException>(() => stale.SaveChangesAsync());
     }
-    [Fact] public async Task Cancellation_after_claim_is_recoverable_without_partial_publication()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Cancellation_after_claim_is_recoverable_without_partial_publication(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var operation = Guid.NewGuid();
+        await using var s = await Create(); var d = await Definition(s, model); var operation = Guid.NewGuid();
         await using var blocker = fixture.CreateContext(); await using var tx = await blocker.Database.BeginTransactionAsync();
         await blocker.Database.ExecuteSqlInterpolatedAsync($"SELECT \"Id\" FROM ingestion.\"DataSources\" WHERE \"Id\"={s.Source} FOR UPDATE");
         using var scope = s.Provider.CreateScope(); using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -125,9 +126,9 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         cancellation.Cancel(); var cancelled = await run; Assert.Equal(ResultOperationStatus.Cancelled, cancelled.Status); Assert.Empty(await s.Db.Backtests.Where(a => a.DatasetId == d.DatasetId).ToArrayAsync());
         await tx.RollbackAsync(); Assert.Equal(ResultOperationStatus.Succeeded, (await s.Get<IHistoricalBacktests>().RecoverAsync(new(operation, cancelled.Fingerprint, "operator", "Explicitly resume cancelled work", true))).Status);
     }
-    [Fact] public async Task Later_history_correction_never_changes_frozen_prediction_inputs()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Later_history_correction_never_changes_frozen_prediction_inputs(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var ops = s.Get<IHistoricalBacktests>(); var one = await ops.PlanAsync(d);
+        await using var s = await Create(); var d = await Definition(s, model); var ops = s.Get<IHistoricalBacktests>(); var one = await ops.PlanAsync(d);
         Assert.Equal(BetStats.Application.Ingestion.ImportOutcome.Succeeded, (await s.Import(s.Fixture.Correction)).Outcome);
         var two = await ops.PlanAsync(d with { EvaluationCutoffUtc = await s.Now() });
         Assert.Equal(CanonicalDatasetJson.Serialize(one.Predictions), CanonicalDatasetJson.Serialize(two.Predictions));
@@ -150,9 +151,9 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         foreach (var sql in new[] { "UPDATE " + table + " SET \"Id\"=\"Id\"", "DELETE FROM " + table, "TRUNCATE " + table + " CASCADE" })
             await Assert.ThrowsAsync<PostgresException>(() => db.Database.ExecuteSqlRawAsync(sql));
     }
-    [Fact] public async Task Actual_worker_routes_plan_run_inspect_verify_and_finalized_recovery()
+    [Theory] [InlineData(false)] [InlineData(true)] public async Task Actual_worker_routes_plan_run_inspect_verify_and_finalized_recovery(bool model)
     {
-        await using var s = await Create(); var d = await Definition(s); var operation = Guid.NewGuid();
+        await using var s = await Create(); var d = await Definition(s, model); var operation = Guid.NewGuid();
         var repo = new DirectoryInfo(AppContext.BaseDirectory);
         while (repo is not null && !File.Exists(Path.Combine(repo.FullName, "BetStats.slnx"))) repo = repo.Parent;
         Assert.NotNull(repo);
@@ -160,10 +161,13 @@ public sealed class BacktestWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         {
             var start = new System.Diagnostics.ProcessStartInfo("dotnet") { WorkingDirectory = repo.FullName, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
             start.ArgumentList.Add(Path.Combine(repo.FullName, "src/BetStats.Worker/bin/Release/net10.0/BetStats.Worker.dll"));
+            var prefix = model ? "--Model:" : "--Backtest:";
+            var routedAction = model ? action switch { "run" => "backtest", "inspect" => "report", _ => action } : action;
             foreach (var arg in new[] { "--Logging:LogLevel:Default=Warning", "--Backtest:Action=" + action, "--Backtest:OperatorId=operator:test", "--Backtest:Reason=Explicit Worker backtest",
-                "--Backtest:Approve=true", "--Backtest:OperationId=" + operation, "--Backtest:DefinitionJson=" + System.Text.Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(d)) }) start.ArgumentList.Add(arg);
-            if (snapshot is not null) start.ArgumentList.Add("--Backtest:SnapshotId=" + snapshot);
-            if (fingerprint is not null) start.ArgumentList.Add("--Backtest:ExpectedFingerprint=" + fingerprint);
+                "--Backtest:Approve=true", "--Backtest:OperationId=" + operation, "--Backtest:DefinitionJson=" + System.Text.Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(d)) })
+                start.ArgumentList.Add(arg.StartsWith("--Backtest:Action=", StringComparison.Ordinal) ? prefix + "Action=" + routedAction : arg.Replace("--Backtest:", prefix, StringComparison.Ordinal));
+            if (snapshot is not null) start.ArgumentList.Add(prefix + "SnapshotId=" + snapshot);
+            if (fingerprint is not null) start.ArgumentList.Add(prefix + "ExpectedFingerprint=" + fingerprint);
             start.Environment["DOTNET_ENVIRONMENT"] = "Development"; start.Environment["ConnectionStrings__BetStats"] = fixture.GetConnectionString(); start.Environment["Ingestion__RawStoragePath"] = s.Root;
             using var child = System.Diagnostics.Process.Start(start)!; var stdout = child.StandardOutput.ReadToEndAsync(); var stderr = child.StandardError.ReadToEndAsync();
             using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
