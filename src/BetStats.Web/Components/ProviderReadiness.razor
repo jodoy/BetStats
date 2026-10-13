@@ -1,0 +1,22 @@
+@page "/provider-readiness"
+<PageTitle>BetStats · @T("Provider readiness", "Gotowość dostawcy")</PageTitle>
+<main lang="@CurrentLanguage">
+<h1>@T("Provider readiness", "Gotowość dostawcy")</h1>
+<article class="card">
+<h2>API-Football v3 · @T("Live activation is blocked", "Aktywacja live jest zablokowana")</h2>
+<p>@T("Technical candidate with a mocked HTTP boundary. No provider is approved for live use.", "Kandydat techniczny z granicą HTTP sprawdzoną na atrapach. Żaden dostawca nie jest zatwierdzony do pracy live.")</p>
+<ul>
+<li>@T("Required: reviewed rights, current source policy and competition/season entitlement.", "Wymagane: zweryfikowane prawa, aktualna polityka źródła i uprawnienia do rozgrywek/sezonu.")</li>
+<li>@T("Required: operator credentials, RAW-to-canonical integration and an explicitly approved canary.", "Wymagane: poświadczenia operatora, integracja RAW z danymi kanonicznymi i jawnie zatwierdzony canary.")</li>
+<li>@T("Live acquisition clocks, remaining provider quota, upcoming matches and real evaluation are unavailable.", "Czasy pobierania live, pozostały limit dostawcy, nadchodzące mecze i rzeczywiste oceny są niedostępne.")</li>
+</ul>
+<p>@T("This page describes the delivered integration boundary; it does not inspect secrets or enable acquisition.", "Ta strona opisuje dostarczoną granicę integracji; nie odczytuje sekretów i nie włącza pobierania.")</p>
+<a href="/quality?lang=@CurrentLanguage">@T("Inspect existing evidence", "Sprawdź istniejące dowody")</a>
+</article>
+</main>
+@code {
+    [SupplyParameterFromQuery(Name="lang")] public string? Lang { get; set; }
+    [Parameter] public string? Language { get; set; }
+    private string CurrentLanguage => DashboardPresentation.Language(Lang ?? Language);
+    private string T(string en, string pl) => CurrentLanguage == "en-GB" ? en : pl;
+}
