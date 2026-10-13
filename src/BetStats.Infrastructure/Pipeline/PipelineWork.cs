@@ -4,6 +4,7 @@ using BetStats.Application.Evaluation;
 using BetStats.Application.Football;
 using BetStats.Application.Ingestion;
 using BetStats.Application.Pipeline;
+using BetStats.Application.Providers;
 using BetStats.Domain.Coverage;
 using BetStats.Infrastructure.Evaluation;
 using BetStats.Infrastructure.Ingestion;
@@ -18,10 +19,23 @@ public sealed record PrematchInput(FootballResultDatasetRequest Dataset, Backtes
 public sealed record PostmatchInput(Guid PredictionExecutionId, Guid BacktestId, string BacktestHash);
 
 public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, FootballImportOperations imports,
-    IResultDatasetOperations datasets, IFootballResultDatasets snapshots, IHistoricalBacktests backtests, IFootballIngestionPersistence ingestion, FootballValidation validation)
+    IResultDatasetOperations datasets, IFootballResultDatasets snapshots, IHistoricalBacktests backtests, IFootballIngestionPersistence ingestion, FootballValidation validation,
+    FootballAcquisition acquisition, FootballProspectiveReports prospective)
 {
     internal async Task AuthorizePublicationAsync(PipelineClaim claim, byte[] artifact, CancellationToken token)
     {
+        if (claim.Definition.Kind == PipelineKind.FootballAcquisition)
+        {
+            using var output = JsonDocument.Parse(artifact);
+            var report = CanonicalDatasetJson.Deserialize<AcquisitionReport>(System.Text.Encoding.UTF8.GetBytes(output.RootElement.GetProperty("Result").GetProperty("Report").GetRawText()));
+            await acquisition.AuthorizePublicationAsync(report, token); return;
+        }
+        if (claim.Definition.Kind == PipelineKind.ProspectiveCohort)
+        {
+            using var output = JsonDocument.Parse(artifact);
+            var report = CanonicalDatasetJson.Deserialize<ProspectiveCohortReport>(System.Text.Encoding.UTF8.GetBytes(output.RootElement.GetProperty("Result").GetProperty("Report").GetRawText()));
+            await prospective.AuthorizeAsync(Input<ProspectiveCohortInput>(claim), report, token); return;
+        }
         if (claim.Definition.Kind == PipelineKind.FootballValidation)
         {
             await validation.AuthorizeAsync(Input<FootballValidationInput>(claim), token); return;
@@ -54,6 +68,12 @@ public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, 
         var artifactCutoff = claim.StartedUtc;
         switch (claim.Definition.Kind)
         {
+            case PipelineKind.FootballAcquisition:
+                result = new { Version = 1, Kind = "football-acquisition-v1", Report = await acquisition.ExecuteAsync(claim.ExecutionId, Input<LocalAcquisitionInput>(claim), approval, claim.Attempt > 1, token) };
+                break;
+            case PipelineKind.ProspectiveCohort:
+                result = new { Version = 1, Kind = "prospective-cohort-v1", Report = await prospective.BuildAsync(Input<ProspectiveCohortInput>(claim), token) };
+                break;
             case PipelineKind.FootballValidation:
                 result = new { Version = 1, Kind = "football-validation-v1", Report = await validation.BuildAsync(Input<FootballValidationInput>(claim), token) };
                 break;

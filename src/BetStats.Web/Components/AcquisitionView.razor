@@ -1,0 +1,30 @@
+@using BetStats.Application.Providers
+@using BetStats.Application.Pipeline
+@{ var r = Artifact.Report; }
+<article class="card">
+    <h2>@T("Acquisition", "Pozyskanie danych"): @(r.State == AcquisitionState.Verified ? T("Verified capture", "Zweryfikowany zapis") : r.State == AcquisitionState.Partial ? T("Partial", "Częściowe") : r.State == AcquisitionState.Blocked ? T("Blocked", "Zablokowane") : T("Unavailable", "Niedostępne"))</h2>
+    <p>@(r.EvidenceKind == ValidationEvidenceKind.Synthetic ? DashboardPresentation.Text("demo", Language) : r.EvidenceKind == ValidationEvidenceKind.OperatorDeclaredReal ? T("Operator-declared real data", "Dane rzeczywiste według operatora") : T("Data origin unavailable", "Pochodzenie danych niedostępne"))</p>
+    <p>@T("Current rights and RAW checked. Independent source certification and real-world accuracy remain unavailable.", "Sprawdzono aktualne prawa i RAW. Niezależna certyfikacja źródła i rzeczywista skuteczność pozostają niedostępne.")</p>
+    <p>@r.Capability.Provider · @T("policy version", "wersja polityki") @r.Capability.PolicyVersion · @r.Scope.CompetitionReference / @r.Scope.SeasonReference</p>
+    <p class="hash">Execution @Artifact.ExecutionId · SHA256 @Artifact.Hash<br />RAW @r.Raw.Id · SHA256 @r.Raw.Hash</p>
+    <p>@T("Retrieved / recorded / assessed UTC", "Pobranie / zapis / kontrola UTC"): @r.Raw.RetrievedUtc.ToString("u") / @r.Raw.RecordedUtc.ToString("u") / @r.AssessedUtc.ToString("u")</p>
+    <p>@T("Identical content observed previously", "Identyczna zawartość obserwowana wcześniej"): @T(r.DuplicateContent ? "Yes" : "No", r.DuplicateContent ? "Tak" : "Nie")</p>
+    <p>@T("Capture does not prove complete coverage or prediction eligibility.", "Zapis nie dowodzi kompletnego pokrycia ani kwalifikacji do predykcji.")</p>
+    @foreach (var o in r.Observations)
+    {
+        <details><summary>@o.EventDate · @o.EventId · @(o.HistoricalImport ? T("Historical import", "Import historyczny") : ProspectiveEvidenceRules.KnownBefore(o, r.AssessedUtc) ? T("Observed before verified kickoff", "Obserwowane przed potwierdzonym kickoffem") : T("Prospective evidence incomplete", "Dowody prospektywne niekompletne"))</summary>
+        <p>@T("Home / away", "Gospodarze / goście"): @o.HomeId / @o.AwayId</p>
+        <p>@T("Kickoff UTC / precision", "Kickoff UTC / precyzja"): @(o.KickoffUtc?.ToString("u") ?? DashboardPresentation.Text("unavailable", Language)) / @o.Precision</p>
+        <p>@T("Source publication UTC", "Publikacja źródła UTC"): @(o.SourcePublishedUtc?.ToString("u") ?? DashboardPresentation.Text("unavailable", Language))</p>
+        @if (o.SourceKickoff is {} sourceTime) { <p>@T("Source local date/time / timezone / offset minutes", "Lokalna data i czas źródła / strefa / przesunięcie w minutach"): @sourceTime.LocalDate @sourceTime.LocalTime / @(sourceTime.TimeZoneId ?? DashboardPresentation.Text("unavailable", Language)) / @sourceTime.OffsetMinutes</p> }
+        <p>@T("Result publication / availability / recording UTC", "Publikacja / dostępność / zapis wyniku UTC"): @(o.ResultPublishedUtc?.ToString("u") ?? DashboardPresentation.Text("unavailable", Language)) / @(o.ResultAvailableUtc?.ToString("u") ?? DashboardPresentation.Text("unavailable", Language)) / @(o.ResultRecordedUtc?.ToString("u") ?? DashboardPresentation.Text("unavailable", Language))</p>
+        <p>@T("Available / database recorded UTC", "Dostępność / zapis w bazie UTC"): @o.AvailableUtc.ToString("u") / @o.RecordedUtc.ToString("u")</p>
+        <p>@T("Final result evidence", "Dowody końcowego wyniku"): @(o.FinalResultEligible ? T("Verified label · evaluation gates still apply", "Zweryfikowana etykieta · nadal obowiązują bramki oceny") : T("Unavailable", "Niedostępne"))</p>
+        <ul>@foreach (var issue in o.Exclusions) { <li><code>@issue</code></li> }</ul></details>
+    }
+</article>
+@code {
+    [Parameter, EditorRequired] public AcquisitionArtifact Artifact { get; set; } = default!;
+    [Parameter] public string Language { get; set; } = "pl-PL";
+    private string T(string en, string pl) => Language == "en-GB" ? en : pl;
+}

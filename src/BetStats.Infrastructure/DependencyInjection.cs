@@ -21,6 +21,9 @@ public static class DependencyInjection
         services.AddScoped<BetStats.Infrastructure.Pipeline.PostgreSqlPipeline>();
         services.AddScoped<BetStats.Infrastructure.Pipeline.PipelineWork>();
         services.AddScoped<BetStats.Infrastructure.Pipeline.FootballValidation>();
+        services.AddScoped<BetStats.Infrastructure.Pipeline.FootballAcquisition>();
+        services.AddScoped<BetStats.Infrastructure.Pipeline.FootballProspectiveReports>();
+        services.AddScoped<BetStats.Application.Providers.IFootballAcquisitionReports>(p => p.GetRequiredService<BetStats.Infrastructure.Pipeline.FootballProspectiveReports>());
         services.AddScoped<BetStats.Application.Pipeline.IFootballValidationReports>(p => p.GetRequiredService<BetStats.Infrastructure.Pipeline.FootballValidation>());
         services.AddScoped<BetStats.Application.Dashboard.IDashboardQueries, BetStats.Infrastructure.Dashboard.PostgreSqlDashboardQueries>();
         services.AddSingleton<BetStats.Application.Evaluation.IHistoricalPredictionProvider, BetStats.Application.Evaluation.SyntheticConstantPredictor>();

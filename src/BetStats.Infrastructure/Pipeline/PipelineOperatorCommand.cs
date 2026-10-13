@@ -65,6 +65,15 @@ public static class PipelineOperatorCommand
             case "status": result = await jobs.StatusAsync(null, token); break;
             case "validation-report": case "verify-validation":
                 result = await services.GetRequiredService<FootballValidation>().ReadAsync(Id("ExecutionId"), false, token); break;
+            case "acquisition-plan":
+                result = await services.GetRequiredService<FootballAcquisition>().PlanAsync(Id("SourceId"), Text("PayloadPath"), new(Text("Competition"), Text("Season")),
+                    Enum.Parse<BetStats.Application.Providers.AcquisitionCategory>(Text("Category")), Enum.Parse<ValidationEvidenceKind>(Text("EvidenceKind")),
+                    config["Pipeline:DateObservationId"] is { } observation ? Guid.Parse(observation) : null,
+                    config["Pipeline:CorrectsKickoffId"] is { } correction ? Guid.Parse(correction) : null, token); break;
+            case "acquisition-inspect": case "acquisition-readiness":
+                result = await services.GetRequiredService<FootballAcquisition>().ReadAsync(Id("ExecutionId"), false, token); break;
+            case "prospective-report":
+                result = await services.GetRequiredService<FootballProspectiveReports>().CohortAsync(Id("ExecutionId"), false, token); break;
             case "inspect-readiness":
                 await using (var file = new FileStream(Text("ValidationInputPath"), FileMode.Open, FileAccess.Read, FileShare.Read, 8192, FileOptions.Asynchronous))
                 {

@@ -256,8 +256,12 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             if (identity.ExternalId != supplied.ProviderEventReference) throw new InvalidDataException("Event-time provider event mismatch.");
             var originalRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == supplied.OriginalRawId && r.DataSourceId == raw.DataSourceId, token);
             var original = await FootballContext.ReadAsync(db, originalRaw, new(supplied.Context.CompetitionReference, supplied.Context.SeasonReference), token);
+            var originalBytes = await Read(originalRaw, token);
+            var originalRows = originalRaw.ExternalReference == "fixture:" + BetStats.Infrastructure.Ingestion.HistoricalFootballCsvParser.Version
+                ? (parser as IVersionedFootballMetadataParser ?? throw new InvalidOperationException("Versioned parser required.")).ParseProfile(originalBytes, original, BetStats.Infrastructure.Ingestion.HistoricalFootballCsvParser.Version, token)
+                : parser.Parse(originalBytes, original, token);
             if (original != new FootballImportScope(supplied.Context.CompetitionReference, supplied.Context.SeasonReference) ||
-                !parser.Parse(await Read(originalRaw, token), original, token).Records.Any(r => r.MatchReference == supplied.ProviderEventReference && r.MatchDate == observation.DateValue))
+                !originalRows.Records.Any(r => r.MatchReference == supplied.ProviderEventReference && r.MatchDate == observation.DateValue))
                 throw new InvalidDataException("Event-time original publication mismatch.");
             var eligibility = await gate.EvaluateAsync(new(observation.Id, await QualityPersistence.Now(db, token), DataPurpose.InternalAnalytics, new(), DatasetMode.HistoricalAsKnown), token);
             if (!eligibility.Eligible || eligibility.InterpretedTargetId is null) throw new InvalidDataException("Resolved historical event evidence required.");
