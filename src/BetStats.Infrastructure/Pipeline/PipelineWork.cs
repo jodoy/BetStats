@@ -18,10 +18,14 @@ public sealed record PrematchInput(FootballResultDatasetRequest Dataset, Backtes
 public sealed record PostmatchInput(Guid PredictionExecutionId, Guid BacktestId, string BacktestHash);
 
 public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, FootballImportOperations imports,
-    IResultDatasetOperations datasets, IFootballResultDatasets snapshots, IHistoricalBacktests backtests, IFootballIngestionPersistence ingestion)
+    IResultDatasetOperations datasets, IFootballResultDatasets snapshots, IHistoricalBacktests backtests, IFootballIngestionPersistence ingestion, FootballValidation validation)
 {
     internal async Task AuthorizePublicationAsync(PipelineClaim claim, byte[] artifact, CancellationToken token)
     {
+        if (claim.Definition.Kind == PipelineKind.FootballValidation)
+        {
+            await validation.AuthorizeAsync(Input<FootballValidationInput>(claim), token); return;
+        }
         if (claim.Definition.Kind == PipelineKind.LocalSynchronization)
         {
             var source = Input<LocalSynchronizationInput>(claim).Plan.SourceId;
@@ -50,6 +54,9 @@ public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, 
         var artifactCutoff = claim.StartedUtc;
         switch (claim.Definition.Kind)
         {
+            case PipelineKind.FootballValidation:
+                result = new { Version = 1, Kind = "football-validation-v1", Report = await validation.BuildAsync(Input<FootballValidationInput>(claim), token) };
+                break;
             case PipelineKind.LocalSynchronization:
                 var local = Input<LocalSynchronizationInput>(claim);
                 if (!System.IO.Path.IsPathFullyQualified(local.Path)) throw new ArgumentException("Explicit absolute local input required.");

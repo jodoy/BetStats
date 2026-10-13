@@ -1,0 +1,36 @@
+@using BetStats.Application.Pipeline
+@{ var r = Artifact.Report; }
+<article class="card">
+    <h2>@Text("Readiness", "Gotowość"): @Status(r.Readiness)</h2>
+    <p>@(r.EvidenceKind == ValidationEvidenceKind.Synthetic ? DashboardPresentation.Text("demo", Language) : r.EvidenceKind == ValidationEvidenceKind.OperatorDeclaredReal ? Text("Operator-declared real data · origin not independently certified", "Dane rzeczywiste według operatora · pochodzenie niepotwierdzone niezależnie") : Text("Data origin unavailable", "Pochodzenie danych niedostępne"))</p>
+    <p>@Text("Inspection completed; this does not certify operational accuracy.", "Kontrola zakończona; nie potwierdza skuteczności operacyjnej.")</p>
+    <p class="hash">Execution @Artifact.ExecutionId<br />SHA256 @Artifact.Hash<br />RAW SHA256 @r.RawHash</p>
+    <dl><dt>@Text("Profile / scope", "Profil / zakres")</dt><dd>@r.Profile · @r.Scope.CompetitionReference / @r.Scope.SeasonReference</dd>
+    <dt>@Text("Assessed / retrieved / recorded UTC", "Kontrola / pobranie / zapis UTC")</dt><dd>@r.AssessedUtc.ToString("u") / @r.RetrievedUtc.ToString("u") / @r.RecordedUtc.ToString("u")</dd>
+    <dt>@Text("Parsed / imported / eligible identities", "Odczytane / zaimportowane / kwalifikujące się tożsamości")</dt><dd>@r.ParsedRecords / @r.ImportedEvents / @r.EligibleIdentities</dd>
+    <dt>@Text("Missing results / uncertified kickoffs", "Brak wyników / niepotwierdzone godziny rozpoczęcia")</dt><dd>@r.MissingResults / @r.UnknownKickoffs</dd></dl>
+    @foreach (var m in r.Models)
+    {
+        <h3>@m.Predictor · v@m.Version</h3>
+        <p>@Text("Predictions / warm-up exclusions", "Predykcje / wykluczenia rozgrzewki"): @m.Predictions / @m.WarmupExclusions</p>
+        <p>@Text("Planned / actual cutoff / execution / publication UTC", "Plan / granica wiedzy / wykonanie / publikacja UTC"): @m.PlannedCutoffUtc.ToString("u") / @m.ActualCutoffUtc.ToString("u") / @m.ExecutedUtc.ToString("u") / @m.PublishedUtc.ToString("u")</p>
+        @foreach (var t in m.Targets)
+        {
+            <p>@t.Target: @t.Requested / @t.Eligible / @t.Excluded</p>
+            @foreach (var metric in t.Metrics)
+            { <p>@metric.Name: @DashboardPresentation.Metric(metric.Value, metric.PositiveInfinity, metric.Denominator > 0, Language) · n=@metric.Denominator</p> }
+        }
+    }
+    <h3>@Text("Issues / limitations (versioned evidence codes)", "Problemy / ograniczenia (wersjonowane kody dowodów)")</h3>
+    <ul>@foreach (var i in r.Issues) { <li>@i.Code: @i.Count</li> }@foreach (var l in r.Limitations) { <li>@l</li> }</ul>
+</article>
+@code {
+    [Parameter, EditorRequired] public FootballValidationArtifact Artifact { get; set; } = default!;
+    [Parameter] public string Language { get; set; } = "pl-PL";
+    private string Text(string en, string pl) => Language == "en-GB" ? en : pl;
+    private string Status(ValidationReadiness state) => state switch {
+        ValidationReadiness.Verified => Text("Verified", "Zweryfikowane"),
+        ValidationReadiness.Incomplete => Text("Incomplete", "Niekompletne"),
+        ValidationReadiness.Blocked => Text("Blocked", "Zablokowane"),
+        _ => Text("Unavailable", "Niedostępne") };
+}

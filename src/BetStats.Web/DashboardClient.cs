@@ -8,6 +8,14 @@ namespace BetStats.Web;
 public sealed class DashboardClient(HttpClient http)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
+    public async Task<BetStats.Application.Pipeline.FootballValidationArtifact> ValidationAsync(Guid execution, CancellationToken token = default)
+    {
+        if (execution == Guid.Empty) throw new ArgumentException("Execution UUID required.");
+        using var response = await http.GetAsync("api/v1/dashboard/validation/" + execution.ToString("D"), token);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<BetStats.Application.Pipeline.FootballValidationArtifact>(Json, token)
+            ?? throw new InvalidDataException("Empty validation response.");
+    }
     public async Task<T> ReadAsync<T>(string resource, DashboardFilter filter, CancellationToken token = default)
     {
         filter.Validate();

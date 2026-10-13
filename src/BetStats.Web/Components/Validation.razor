@@ -1,0 +1,27 @@
+@page "/validation/{ExecutionId:guid}"
+@inject DashboardClient Client
+<PageTitle>BetStats · @Text("Validation report", "Raport walidacji")</PageTitle>
+<main lang="@Language">
+    <a href="/quality?lang=@Language">@Text("Data quality", "Jakość danych")</a>
+    <h1>@Text("Validation report", "Raport walidacji")</h1>
+    <ReadState State="@state" Language="@Language" Demo="@(artifact?.Report.EvidenceKind == BetStats.Application.Pipeline.ValidationEvidenceKind.Synthetic)" />
+    @if (artifact is {} a)
+    {
+        <ValidationReport Artifact="a" Language="@Language" />
+    }
+</main>
+@code {
+    [Parameter] public Guid ExecutionId { get; set; }
+    [SupplyParameterFromQuery(Name="lang")] public string? Lang { get; set; }
+    private string Language => DashboardPresentation.Language(Lang);
+    private string Text(string en, string pl) => Language == "en-GB" ? en : pl;
+    private string state = "loading";
+    private BetStats.Application.Pipeline.FootballValidationArtifact? artifact;
+    protected override async Task OnParametersSetAsync()
+    {
+        state = "loading"; artifact = null;
+        try { artifact = await Client.ValidationAsync(ExecutionId); state = "ready"; }
+        catch (HttpRequestException error) { state = error.StatusCode == System.Net.HttpStatusCode.Forbidden ? "denied" : "error"; }
+        catch (Exception error) when (error is ArgumentException or InvalidDataException or System.Text.Json.JsonException or TaskCanceledException) { state = "error"; }
+    }
+}

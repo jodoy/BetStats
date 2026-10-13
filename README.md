@@ -297,6 +297,7 @@ and [ADR 0021](docs/adr/0021-coverage-time-evaluation.md).
 - 🇵🇱 [Specyfikacja Produktu i Inżynierii v1.0 — Polski](docs/specifications/BetStats_2_0_Specyfikacja_Produktu_i_Inzynierii_v1_0_PL.docx)
 - [Architecture Decision Records](docs/adr/)
 - BS-015 durable opt-in pipeline: [English operator runbook](docs/runbooks/automated-pipeline.en.md), [Polska instrukcja operatora](docs/runbooks/automated-pipeline.pl.md), [ADR 0029](docs/adr/0029-explicit-durable-governed-pipeline.md).
+- BS-016 bounded dataset validation: [English operator runbook](docs/runbooks/real-data-validation.en.md), [Polska instrukcja operatora](docs/runbooks/real-data-validation.pl.md), [ADR 0030](docs/adr/0030-real-data-validation.md). Real-data evidence is unavailable until an authorized operator dataset is supplied.
 - [Engineering documentation — English](docs/en/)
 - [Dokumentacja techniczna — Polski](docs/pl/)
 
