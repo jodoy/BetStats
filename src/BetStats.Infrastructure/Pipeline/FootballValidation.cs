@@ -31,7 +31,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             raw.ExternalReference != "fixture:" + input.Profile || await FootballContext.ReadAsync(db, raw, input.Scope, token) != input.Scope)
             throw new InvalidDataException("RAW profile, hash or scope mismatch.");
         var now = await QualityPersistence.Now(db, token);
-        foreach (var purpose in new[] { DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }
+        foreach (var purpose in new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }
             .Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
         {
             var policy = await policies.EvaluateAsync(input.SourceId, purpose, now, new(PublicDisplay: display, IntendedRetentionDays: 1), token);
@@ -58,8 +58,17 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         var now = await QualityPersistence.Now(db, token);
         var raw = await db.RawPayloads.AsNoTracking().SingleAsync(x => x.Id == input.RawId, token);
         var issues = parsed.Issues.GroupBy(i => i.Code).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+        var authorizations = new List<ValidationAuthorization>();
+        foreach (var purpose in new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics })
+        {
+            var decision = await policies.EvaluateAsync(input.SourceId, purpose, now, new(IntendedRetentionDays: 1), token);
+            if (!decision.Allowed || decision.PolicyId is not { } policy || decision.Version is not { } version)
+                throw new UnauthorizedAccessException("Validation policy changed.");
+            var restriction = decision.Restrictions.Single(r => r.Purpose == purpose);
+            authorizations.Add(new(purpose, policy, version, restriction.MaximumRetentionDays, restriction.Attribution is not null));
+        }
         void Issue(string code) => issues[code] = issues.GetValueOrDefault(code) + 1;
-        var observations = await db.Observations.AsNoTracking().Where(o => o.RawPayloadId == input.RawId && o.Type == ObservationType.EventDate)
+        var observations = await db.Observations.AsNoTracking().Where(o => o.RawPayloadId == input.RawId && o.Type == ObservationType.EventDate && o.RecordedAtUtc <= now && o.AvailableAtUtc <= now)
             .OrderBy(o => o.Id).Take(501).ToArrayAsync(token);
         if (observations.Length > 500) throw new InvalidDataException("RAW observation bound exceeded.");
         var eligible = 0;
@@ -69,7 +78,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             if (quality.Eligible) eligible++;
             foreach (var reason in quality.Reasons) Issue(reason);
         }
-        var results = await db.FootballResults.AsNoTracking().Where(r => r.RawId == input.RawId).OrderBy(r => r.Id).Take(501).ToArrayAsync(token);
+        var results = await db.FootballResults.AsNoTracking().Where(r => r.RawId == input.RawId && r.RecordedAtUtc <= now && r.AvailableAtUtc <= now).OrderBy(r => r.Id).Take(501).ToArrayAsync(token);
         if (results.Length > 500) throw new InvalidDataException("RAW result bound exceeded.");
         // Imported result availability never implies independently complete label coverage.
         var missing = parsed.Records.Count(r => r.Result is null || !FootballResultRules.LabelEligible(r.Result.Value));
@@ -87,10 +96,10 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             input.EvidenceKind, FootballValidationRules.Readiness(parsed.ParsedCount, observations.Length, eligible, issues.Values.Sum(), models.Count,
                 models.Sum(m => m.Targets.Sum(t => t.Eligible))), now, raw.RetrievedAtUtc, raw.RecordedAtUtc, parsed.ParsedCount,
             observations.Length, eligible, missing, parsed.Records.Count, issues.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new ValidationIssue(p.Key, p.Value)).ToArray(),
-            models, limitations, results.Select(r => new ValidationObservation(r.Id, r.EventId, r.EventDate, r.PublishedAtUtc, r.RetrievedAtUtc, r.AvailableAtUtc, r.RecordedAtUtc)).ToArray());
+            models, limitations, results.Select(r => new ValidationObservation(r.Id, r.EventId, r.EventDate, r.PublishedAtUtc, r.RetrievedAtUtc, r.AvailableAtUtc, r.RecordedAtUtc)).ToArray(), authorizations);
     }
 
-    private async Task<(PipelineExecution Execution, JsonElement Result)> Output(Guid id, string kind, CancellationToken token)
+    private async Task<(PipelineExecution Execution, JsonElement Result, DateTime CutoffUtc)> Output(Guid id, string kind, CancellationToken token)
     {
         var execution = await db.Set<PipelineExecution>().AsNoTracking().SingleAsync(e => e.Id == id, token);
         var artifact = await db.Set<PipelineArtifact>().AsNoTracking().SingleAsync(a => a.ExecutionId == id, token);
@@ -100,12 +109,14 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         if (doc.RootElement.GetProperty("ExecutionId").GetGuid() != id) throw new InvalidDataException("Execution output binding mismatch.");
         var result = doc.RootElement.GetProperty("Result").Clone();
         if (result.GetProperty("Kind").GetString() != kind) throw new InvalidDataException("Unexpected pipeline output kind.");
-        return (execution, result);
+        var cutoff = doc.RootElement.GetProperty("ActualCutoffUtc").GetDateTime();
+        if (cutoff > execution.StartedUtc) throw new InvalidDataException("Pipeline cutoff exceeds execution time.");
+        return (execution, result, cutoff);
     }
 
     private async Task<ValidationModel> Model(FootballValidationInput input, ValidationPublication reference, bool deep, CancellationToken token)
     {
-        var (execution, result) = await Output(reference.PredictionExecutionId, "operational-prematch-publication", token);
+        var (execution, result, actualCutoff) = await Output(reference.PredictionExecutionId, "operational-prematch-publication", token);
         var id = result.GetProperty("published").GetProperty("SnapshotId").GetGuid();
         var frozen = await backtests.InspectAsync(id, token);
         var m = frozen.Manifest;
@@ -120,7 +131,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         foreach (var p in m.Predictions)
         {
             BacktestRules.Validate(p.Value, p.Target);
-            if (p.PredictionCutoffUtc != execution.StartedUtc || p.FeatureDatasetId != features.Id || p.FeatureDatasetHash != features.Hash || p.Model is null)
+            if (p.PredictionCutoffUtc != actualCutoff || p.FeatureDatasetId != features.Id || p.FeatureDatasetHash != features.Hash || p.Model is null)
                 throw new InvalidDataException("Prediction model, cutoff or feature binding mismatch.");
         }
         if (deep)
@@ -133,7 +144,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         IReadOnlyList<TargetEvaluation> targets = []; DateTime? evaluationCutoff = null;
         if (reference.EvaluationExecutionId is { } evaluationId)
         {
-            var (evaluated, output) = await Output(evaluationId, "postmatch-evaluation-of-frozen-predictions", token);
+            var (evaluated, output, _) = await Output(evaluationId, "postmatch-evaluation-of-frozen-predictions", token);
             var report = CanonicalDatasetJson.Deserialize<BacktestManifest>(System.Text.Encoding.UTF8.GetBytes(output.GetProperty("Report").GetRawText()));
             if (output.GetProperty("OriginalId").GetGuid() != id || output.GetProperty("OriginalHash").GetString() != frozen.Hash ||
                 CanonicalDatasetJson.Fingerprint(report.Predictions) != CanonicalDatasetJson.Fingerprint(m.Predictions) ||
@@ -154,8 +165,8 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             targets = report.Report.Targets; evaluationCutoff = evaluated.StartedUtc;
         }
         return new(reference.PredictionExecutionId, reference.EvaluationExecutionId, id, frozen.Hash, m.Definition.Predictor, m.Definition.PredictorVersion,
-            features.Id, features.Hash, execution.PlannedUtc, execution.StartedUtc, execution.StartedUtc, frozen.RecordedAtUtc, evaluationCutoff,
-            m.Predictions.Count, m.Predictions.Count(p => p.Model?.Warmed != true), targets);
+            features.Id, features.Hash, execution.PlannedUtc, actualCutoff, execution.StartedUtc, frozen.RecordedAtUtc, evaluationCutoff,
+            m.Predictions.Count, m.Predictions.Count(p => p.Target is EvaluationTarget.FirstHalfGoalOccurrence or EvaluationTarget.FirstHalfTotalGoals ? p.Model?.HalfWarmed != true : p.Model?.Warmed != true), targets);
     }
 
     private async Task CheckRaw(FootballResultManifest manifest, bool display, CancellationToken token)
@@ -192,14 +203,14 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         var manifests = new List<BacktestManifest>();
         foreach (var reference in input.Publications)
         {
-            var (_, output) = await Output(reference.PredictionExecutionId, "operational-prematch-publication", token);
+            var (_, output, _) = await Output(reference.PredictionExecutionId, "operational-prematch-publication", token);
             var id = output.GetProperty("published").GetProperty("SnapshotId").GetGuid();
             var frozen = await db.Backtests.AsNoTracking().SingleAsync(a => a.Id == id, token);
             if (frozen.Hash != CanonicalDatasetJson.Hash(frozen.Content)) throw new InvalidDataException("Publication changed.");
             manifests.Add(CanonicalDatasetJson.Deserialize<BacktestManifest>(frozen.Content));
             if (reference.EvaluationExecutionId is { } evaluation)
             {
-                var (_, result) = await Output(evaluation, "postmatch-evaluation-of-frozen-predictions", token);
+                var (_, result, _) = await Output(evaluation, "postmatch-evaluation-of-frozen-predictions", token);
                 var manifest = CanonicalDatasetJson.Deserialize<BacktestManifest>(System.Text.Encoding.UTF8.GetBytes(result.GetProperty("Report").GetRawText()));
                 manifests.Add(manifest);
             }
@@ -217,7 +228,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
     public async Task<FootballValidationArtifact> ReadAsync(Guid executionId, bool display, CancellationToken token = default)
     {
         if (executionId == Guid.Empty) throw new ArgumentException("Execution UUID required.");
-        var (execution, result) = await Output(executionId, "football-validation-v1", token);
+        var (execution, result, _) = await Output(executionId, "football-validation-v1", token);
         var version = await db.Set<PipelineJobVersion>().AsNoTracking().SingleAsync(v => v.JobId == execution.JobId && v.Version == execution.DefinitionVersion, token);
         if (version.Hash != CanonicalDatasetJson.Hash(version.Content)) throw new InvalidDataException("Definition integrity failure.");
         var definition = CanonicalDatasetJson.Deserialize<PipelineDefinition>(version.Content);
@@ -235,7 +246,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
                 var authorizations = frozen.Manifest.Authorizations ?? [];
                 if (reference.EvaluationExecutionId is { } evaluation)
                 {
-                    var (_, evaluated) = await Output(evaluation, "postmatch-evaluation-of-frozen-predictions", token);
+                    var (_, evaluated, _) = await Output(evaluation, "postmatch-evaluation-of-frozen-predictions", token);
                     var m = CanonicalDatasetJson.Deserialize<BacktestManifest>(System.Text.Encoding.UTF8.GetBytes(evaluated.GetProperty("Report").GetRawText()));
                     await CheckRaw(m.EvaluationEvidence, true, token);
                     authorizations = authorizations.Concat(m.Authorizations ?? []).ToArray();

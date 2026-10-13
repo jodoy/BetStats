@@ -82,7 +82,10 @@ public sealed class FootballValidationTests(PostgreSqlFixture fixture) : IClassF
     [Fact] public async Task Repeated_dispatch_and_reads_preserve_frozen_report_and_all_legacy_artifacts()
     {
         await using var s = await Create(); var legacy = await BacktestWorkflowTests.Definition(s, true);
+        var legacyPublication = await s.Get<IHistoricalBacktests>().RunAsync(new(Guid.NewGuid(), legacy, Approval.Actor, "Freeze legacy predictions before validation", true));
+        Assert.Equal(ResultOperationStatus.Succeeded, legacyPublication.Status);
         var before = await s.Db.Backtests.AsNoTracking().Select(a => a.Content).ToArrayAsync();
+        Assert.NotEmpty(before);
         var job = await Plan(s, await Input(s)); Assert.Equal(0, await Command(s, "run-once"));
         var e = await s.Db.Set<PipelineExecution>().AsNoTracking().SingleAsync(x => x.JobId == job);
         var one = await s.Get<FootballValidation>().ReadAsync(e.Id, false);

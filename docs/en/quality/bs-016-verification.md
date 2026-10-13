@@ -23,12 +23,18 @@ schema/migration or change to an existing immutable manifest contract is require
 - Locked restore: passed locally.
 - Release build: passed locally, zero warnings/errors.
 - EF `has-pending-model-changes`: passed locally; no pending model changes.
-- New unit tests: 20 passed initially; final full suite results recorded below.
+- Local unit suite: 329 passed, zero failed/skipped. Architecture: 22 passed,
+  zero failed/skipped. New unit cases: 20.
 - Initial PostgreSQL attempt: failed to initialize fixture because Docker was
   unavailable. Docker Desktop startup itself crashes on its `dockerInference`
   socket. This is an environment failure, not a passing integration run; no tests
   were weakened or marked skipped. Final CI results will be recorded below.
-- Final CI/CodeQL: pending.
+- Initial CI #54: 329 unit and 22 architecture tests passed; 384/385 PostgreSQL
+  integration tests passed, with the sole failure being the OpenAPI endpoint count
+  assertion (16 → 17). The assertion now includes the new required execution UUID;
+  its focused local rerun passes. CodeQL #53 passed on initial head `9370009`.
+- Full local test invocation was attempted: PostgreSQL-dependent fixtures failed
+  initialization. No local PostgreSQL success is claimed. Final CI/CodeQL pending.
 
 ## Coverage map
 

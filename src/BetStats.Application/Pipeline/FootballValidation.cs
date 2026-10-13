@@ -22,6 +22,8 @@ public sealed record FootballValidationInput(int Version, Guid SourceId, Guid Ra
 public sealed record ValidationIssue(string Code, int Count);
 public sealed record ValidationObservation(Guid ObservationId, Guid EventId, DateOnly EventDate, DateTime? SourcePublishedUtc,
     DateTime RetrievedUtc, DateTime AvailableUtc, DateTime RecordedUtc);
+public sealed record ValidationAuthorization(BetStats.Domain.Governance.DataPurpose Purpose, Guid PolicyId, int PolicyVersion,
+    int? MaximumRetentionDays, bool AttributionRequired);
 public sealed record ValidationModel(Guid PredictionExecutionId, Guid? EvaluationExecutionId, Guid BacktestId,
     string BacktestHash, string Predictor, int Version, Guid DatasetId, string DatasetHash,
     DateTime PlannedCutoffUtc, DateTime ActualCutoffUtc, DateTime ExecutedUtc, DateTime PublishedUtc,
@@ -30,7 +32,8 @@ public sealed record FootballValidationReport(int Version, string InputHash, Gui
     string Profile, FootballImportScope Scope, ValidationEvidenceKind EvidenceKind, ValidationReadiness Readiness,
     DateTime AssessedUtc, DateTime RetrievedUtc, DateTime RecordedUtc, int ParsedRecords, int ImportedEvents,
     int EligibleIdentities, int MissingResults, int UnknownKickoffs, IReadOnlyList<ValidationIssue> Issues,
-    IReadOnlyList<ValidationModel> Models, IReadOnlyList<string> Limitations, IReadOnlyList<ValidationObservation> ResultObservations);
+    IReadOnlyList<ValidationModel> Models, IReadOnlyList<string> Limitations, IReadOnlyList<ValidationObservation> ResultObservations,
+    IReadOnlyList<ValidationAuthorization> Authorizations);
 public sealed record FootballValidationArtifact(Guid ExecutionId, string Hash, FootballValidationReport Report);
 public interface IFootballValidationReports
 {
