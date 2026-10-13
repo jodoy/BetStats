@@ -298,6 +298,7 @@ and [ADR 0021](docs/adr/0021-coverage-time-evaluation.md).
 - [Architecture Decision Records](docs/adr/)
 - BS-015 durable opt-in pipeline: [English operator runbook](docs/runbooks/automated-pipeline.en.md), [Polska instrukcja operatora](docs/runbooks/automated-pipeline.pl.md), [ADR 0029](docs/adr/0029-explicit-durable-governed-pipeline.md).
 - BS-016 bounded dataset validation: [English operator runbook](docs/runbooks/real-data-validation.en.md), [Polska instrukcja operatora](docs/runbooks/real-data-validation.pl.md), [ADR 0030](docs/adr/0030-real-data-validation.md). Real-data evidence is unavailable until an authorized operator dataset is supplied.
+- BS-017 authorized prospective acquisition: [English runbook](docs/runbooks/authorized-acquisition.en.md), [Polska instrukcja](docs/runbooks/authorized-acquisition.pl.md), [source authorization checklist](docs/en/data/football-source-authorization.md), [prospective evidence guide](docs/en/data/prospective-evidence.md), [ADR 0031](docs/adr/0031-authorized-prospective-acquisition.md). Live provider transport remains disabled.
 - [Engineering documentation — English](docs/en/)
 - [Dokumentacja techniczna — Polski](docs/pl/)
 

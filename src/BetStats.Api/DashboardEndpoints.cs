@@ -34,5 +34,14 @@ public static class DashboardEndpoints
             demo ? Results.NotFound() : Results.Ok(await reports.ReadAsync(executionId, true, token)))
             .Produces<BetStats.Application.Pipeline.FootballValidationArtifact>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/provenance", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).FixturesAsync(filter, token));
+        group.MapGet("/acquisition/{executionId:guid}", async (Guid executionId, BetStats.Application.Providers.IFootballAcquisitionReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.AcquisitionAsync(executionId, true, token)))
+            .Produces<BetStats.Application.Providers.AcquisitionArtifact>(200).ProducesProblem(403).ProducesProblem(409);
+        group.MapGet("/prospective/{executionId:guid}", async (Guid executionId, BetStats.Application.Providers.IFootballAcquisitionReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.CohortAsync(executionId, true, token)))
+            .Produces<BetStats.Application.Providers.ProspectiveCohortArtifact>(200).ProducesProblem(403).ProducesProblem(409);
+        group.MapGet("/acquisition-status/{jobId:guid}", async (Guid jobId, BetStats.Application.Providers.IFootballAcquisitionReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(jobId, true, token)))
+            .Produces<BetStats.Application.Providers.AcquisitionJobStatus>(200).ProducesProblem(403).ProducesProblem(409);
     }
 }

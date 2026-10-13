@@ -1,0 +1,61 @@
+@page "/monitor/{Kind}/{Id:guid}"
+@using BetStats.Application.Providers
+@inject DashboardClient Client
+<PageTitle>BetStats · @T("Acquisition monitoring", "Monitoring pozyskiwania danych")</PageTitle>
+<main lang="@Language">
+<a href="/quality?lang=@Language">@T("Data quality", "Jakość danych")</a>
+<h1>@T("Acquisition monitoring", "Monitoring pozyskiwania danych")</h1>
+<ReadState State="@state" Language="@Language" Demo="false" />
+@if (acquisition is {} a) { <AcquisitionView Artifact="a" Language="@Language" /> }
+@if (cohort is {} c)
+{
+    <article class="card"><h2>@T("Prospective cohort", "Kohorta prospektywna")</h2>
+    <p>@T("Observed / pre-event observations / frozen predictions / eligible frozen predictions", "Obserwowane mecze / obserwacje przed meczem / zamrożone predykcje / kwalifikujące się zamrożone predykcje"): @c.Report.ObservedEvents / @c.Report.PreEventObserved / @c.Report.FrozenPredictions / @c.Report.EligiblePredictions</p>
+    <p>@T("Completed matches / eligible target evaluation samples / warm-up exclusions", "Zakończone mecze / kwalifikujące się próbki oceny celów / wykluczenia rozgrzewki"): @c.Report.CompletedMatches / @c.Report.EligibleEvaluations / @c.Report.WarmupExclusions</p>
+    <p>@T("No operational accuracy or independent source certification. Original cohorts are preserved; models are not ranked.", "Brak potwierdzonej skuteczności operacyjnej i niezależnej certyfikacji źródła. Zachowano oryginalne kohorty; bez rankingu modeli.")</p>
+    <p class="hash">Execution @c.ExecutionId · SHA256 @c.Hash</p>
+    <h3>@T("Coverage", "Pokrycie danych")</h3>
+    @foreach (var item in c.Report.Coverage) { <p>@item.Category: @Coverage(item.Status)</p> }
+    </article>
+    @foreach (var item in c.Report.Acquisitions) { <AcquisitionView Artifact="item" Language="@Language" /> }
+    @foreach (var item in c.Report.Validations) { <ValidationReport Artifact="item" Language="@Language" /> }
+}
+@if (status is {} s)
+{
+    <article class="card"><h2>@T("Job status", "Stan zadania"): @JobState(s.State)</h2>
+    <p>@T("Current source authorization verified", "Aktualne prawa źródła sprawdzone")</p>
+    <ul>@foreach (var e in s.Executions) { <li>@e.ExecutionId · @JobState(e.State) · @T("attempt", "próba") @e.Attempt · @e.StartedUtc.ToString("u") <a href="/monitor/acquisition/@e.ExecutionId?lang=@Language">@T("Report", "Raport")</a></li> }</ul></article>
+}
+</main>
+@code {
+    [Parameter] public string Kind { get; set; } = "";
+    [Parameter] public Guid Id { get; set; }
+    [SupplyParameterFromQuery(Name="lang")] public string? Lang { get; set; }
+    private string Language => DashboardPresentation.Language(Lang);
+    private string T(string en, string pl) => Language == "en-GB" ? en : pl;
+    private string state = "loading";
+    private AcquisitionArtifact? acquisition;
+    private ProspectiveCohortArtifact? cohort;
+    private AcquisitionJobStatus? status;
+    private string Coverage(string value) => value switch { "VerifiedComplete" => T("Verified complete", "Potwierdzone kompletne"), "VerifiedEmpty" => T("Verified empty", "Potwierdzone puste"), "Partial" => T("Partial", "Częściowe"), "Conflicting" => T("Conflicting", "Sprzeczne"), _ => T("Unavailable / unknown", "Niedostępne / nieznane") };
+    private string JobState(BetStats.Application.Pipeline.PipelineState value) => value switch {
+        BetStats.Application.Pipeline.PipelineState.Completed => T("Completed inspection", "Kontrola zakończona"),
+        BetStats.Application.Pipeline.PipelineState.Blocked => T("Blocked", "Zablokowane"),
+        BetStats.Application.Pipeline.PipelineState.Running => T("Running", "W toku"),
+        BetStats.Application.Pipeline.PipelineState.Pending => T("Pending", "Oczekujące"),
+        BetStats.Application.Pipeline.PipelineState.Disabled => T("Disabled", "Wyłączone"),
+        BetStats.Application.Pipeline.PipelineState.Cancelled => T("Cancelled", "Anulowane"), _ => T("Failed", "Niepowodzenie") };
+    protected override async Task OnParametersSetAsync()
+    {
+        state = "loading"; acquisition = null; cohort = null; status = null;
+        try {
+            if (Kind == "acquisition") acquisition = await Client.AcquisitionAsync<AcquisitionArtifact>(Kind, Id);
+            else if (Kind == "prospective") cohort = await Client.AcquisitionAsync<ProspectiveCohortArtifact>(Kind, Id);
+            else if (Kind == "acquisition-status") status = await Client.AcquisitionAsync<AcquisitionJobStatus>(Kind, Id);
+            else throw new ArgumentException("Unsupported monitoring resource.");
+            state = "ready";
+        }
+        catch (HttpRequestException e) { state = e.StatusCode == System.Net.HttpStatusCode.Forbidden ? "denied" : "error"; }
+        catch (Exception e) when (e is ArgumentException or InvalidDataException or System.Text.Json.JsonException or TaskCanceledException) { state = "error"; }
+    }
+}

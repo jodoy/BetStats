@@ -1,4 +1,5 @@
 using BetStats.Domain.Governance;
+using BetStats.Application.Ingestion;
 
 namespace BetStats.Application.Providers;
 
@@ -16,7 +17,9 @@ public sealed record FootballProviderContract(int Version, FootballTransport Tra
         DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics });
 }
 
-public sealed record FootballApiPageRequest(string? Cursor, int PageSize);
+public sealed record FootballApiPageRequest(string? Cursor, int PageSize,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] AcquisitionPageContext? Acquisition = null);
+public sealed record AcquisitionPageContext(int Version, Guid SourceId, Guid PolicyId, int PolicyVersion, FootballImportScope Scope, AcquisitionCategory Category);
 public sealed record FootballApiPage(ReadOnlyMemory<byte> Bytes, string? NextCursor, ProviderError? Error = null);
 
 // Implementations must be explicitly configured and invoked through AuthorizedProviderExecutor.
