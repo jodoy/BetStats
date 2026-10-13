@@ -25,16 +25,18 @@ schema/migration or change to an existing immutable manifest contract is require
 - EF `has-pending-model-changes`: passed locally; no pending model changes.
 - Local unit suite: 329 passed, zero failed/skipped. Architecture: 22 passed,
   zero failed/skipped. New unit cases: 20.
-- Initial PostgreSQL attempt: failed to initialize fixture because Docker was
+- Local PostgreSQL attempts: failed to initialize fixtures because Docker was
   unavailable. Docker Desktop startup itself crashes on its `dockerInference`
   socket. This is an environment failure, not a passing integration run; no tests
-  were weakened or marked skipped. Final CI results will be recorded below.
-- Initial CI #54: 329 unit and 22 architecture tests passed; 384/385 PostgreSQL
-  integration tests passed, with the sole failure being the OpenAPI endpoint count
-  assertion (16 → 17). The assertion now includes the new required execution UUID;
-  its focused local rerun passes. CodeQL #53 passed on initial head `9370009`.
-- Full local test invocation was attempted: PostgreSQL-dependent fixtures failed
-  initialization. No local PostgreSQL success is claimed. Final CI/CodeQL pending.
+  were weakened or marked skipped. No local PostgreSQL success is claimed.
+- Complete verification of implementation head
+  `d03318582469f76fbb9c57c76e5938ad2134b7d5`:
+  [CI #55](https://github.com/jodoy/BetStats/actions/runs/38380280027) passed.
+  Job logs confirm **736 passed, 0 failed, 0 skipped**: 329 unit + 22 architecture
+  + 385 disposable PostgreSQL integration tests. Release build: zero warnings/errors.
+- [CodeQL #54](https://github.com/jodoy/BetStats/actions/runs/38380280146) passed
+  for the same implementation SHA; SARIF processing completed successfully.
+- `git diff --check` passed. Final documentation-head checks are linked from PR #20.
 
 ## Coverage map
 
@@ -44,6 +46,9 @@ missing evaluation, revoked/missing permissions, RAW corruption, report retentio
 read-only HTTP, Production denial, bilingual rendering, idempotent dispatch,
 live-owner exclusion/expired recovery, all three existing model publications,
 malformed/conflicting CSV and preservation of legacy artifact bytes/ledgers.
+The existing real-clock prematch → crash → recovery → postmatch test additionally
+validates BS-016 report binding, exact original prediction cutoff, later recovered
+execution time, byte-identical predictions and honest zero eligible samples.
 `FootballValidationBoundaryTests` checks the GET/read-only port and explicit Worker
 boundary. Existing architecture graph tests enforce Infrastructure ownership.
 
@@ -51,7 +56,7 @@ Unchanged BS-011–015 suites continue to cover chronological/cutoff leakage,
 future corrections/reviews, independent result eligibility, numerical model
 distributions, warm-up, null calibration, immutable prediction publication,
 fenced concurrent owners, cancellation/retry limits and fresh/upgrade migrations.
-The full-suite result must pass before these are reported as verified for BS-016.
+These regressions passed in the complete CI suite for the implementation SHA above.
 
 ## Reproducibility and limits
 
