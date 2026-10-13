@@ -4,6 +4,7 @@
 <PageTitle>BetStats · @T("Acquisition monitoring", "Monitoring pozyskiwania danych")</PageTitle>
 <main lang="@Language">
 <a href="/quality?lang=@Language">@T("Data quality", "Jakość danych")</a>
+<a href="/provider-readiness?lang=@Language">@T("Provider readiness", "Gotowość dostawcy")</a>
 <h1>@T("Acquisition monitoring", "Monitoring pozyskiwania danych")</h1>
 <ReadState State="@state" Language="@Language" Demo="false" />
 @if (acquisition is {} a) { <AcquisitionView Artifact="a" Language="@Language" /> }
