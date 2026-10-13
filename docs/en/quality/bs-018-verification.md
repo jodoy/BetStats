@@ -40,8 +40,20 @@ git diff --check
 
 Integration databases are disposable PostgreSQL 17 Alpine Testcontainers, never
 the operator's running database. Existing untracked Web launch settings are excluded.
-No migration or package changes. Final local and exact-head CI results are recorded
-in the pull request after verification finishes.
+No migration or package changes.
+
+Local implementation `8fc342795bafbbd61c28964dc8ca7e8b99727c29` passed all
+**844 tests, 0 failed, 0 skipped**: 358 unit, 24 architecture and 462 integration.
+The integration suite took 7 minutes 9 seconds. Locked restore and Release build
+passed with zero warnings/errors. EF confirms no changes since the last migration;
+diff check passed. The 57 new cases comprise 8 scope, 1 architecture, 46 mocked
+HTTP/reader/PL-EN and 2 PostgreSQL RAW preservation cases. The prior 787 cases remain.
+
+Implementation-head [CodeQL #60](https://github.com/jodoy/BetStats/actions/runs/38430457452)
+passed. [CI #61](https://github.com/jodoy/BetStats/actions/runs/38430457463) and the
+exact final documentation-head CI/CodeQL results are tracked in
+[PR #22](https://github.com/jodoy/BetStats/pull/22) before review readiness. A prior
+green head is never used as a substitute for checking the final head.
 
 ## Test coverage and limits
 
