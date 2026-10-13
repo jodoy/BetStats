@@ -209,5 +209,15 @@ public sealed class PipelineWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         Assert.Equal(original, CanonicalDatasetJson.Serialize(report.Predictions));
         Assert.All(report.Report.Targets, t => { Assert.Equal(0, t.Eligible); Assert.All(t.Metrics, m => Assert.Null(m.Value)); });
         Assert.All(report.Samples, sample => Assert.Contains("eligible_outcome_missing_or_conflicting", sample.Reasons));
+        // BS-016 must retain the original prediction cutoff across recovered parent execution.
+        var inputRaw = await s.Db.RawPayloads.AsNoTracking().FirstAsync(r => r.DataSourceId == s.Source && r.ExternalReference == "fixture:results-v1");
+        var validationInput = new FootballValidationInput(1, s.Source, inputRaw.Id, inputRaw.ContentHashSha256, "results-v1", s.Fixture.Scope,
+            ValidationEvidenceKind.Synthetic, [new(execution.Id, evaluatedExecution.Id)]);
+        var validation = await s.Get<FootballValidation>().BuildAsync(validationInput);
+        var model = Assert.Single(validation.Models);
+        Assert.Equal(originalClaim.StartedUtc, model.ActualCutoffUtc);
+        Assert.Equal(execution.StartedUtc, model.ExecutedUtc); Assert.True(model.ExecutedUtc > model.ActualCutoffUtc);
+        Assert.All(model.Targets, t => { Assert.Equal(0, t.Eligible); Assert.All(t.Metrics, m => Assert.Null(m.Value)); });
+        Assert.NotEqual(ValidationReadiness.Verified, validation.Readiness);
     }
 }

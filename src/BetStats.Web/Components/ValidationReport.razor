@@ -1,0 +1,55 @@
+@using BetStats.Application.Pipeline
+@{ var r = Artifact.Report; }
+<article class="card">
+    <h2>@Text("Readiness", "Gotowość"): @Status(r.Readiness)</h2>
+    <p>@(r.EvidenceKind == ValidationEvidenceKind.Synthetic ? DashboardPresentation.Text("demo", Language) : r.EvidenceKind == ValidationEvidenceKind.OperatorDeclaredReal ? Text("Operator-declared real data · origin not independently certified", "Dane rzeczywiste według operatora · pochodzenie niepotwierdzone niezależnie") : Text("Data origin unavailable", "Pochodzenie danych niedostępne"))</p>
+    <p>@Text("Inspection completed; this does not certify operational accuracy.", "Kontrola zakończona; nie potwierdza skuteczności operacyjnej.")</p>
+    <p class="hash">Execution @Artifact.ExecutionId<br />SHA256 @Artifact.Hash<br />RAW SHA256 @r.RawHash</p>
+    <dl><dt>@Text("Profile / scope", "Profil / zakres")</dt><dd>@r.Profile · @r.Scope.CompetitionReference / @r.Scope.SeasonReference</dd>
+    <dt>@Text("Assessed / retrieved / recorded UTC", "Kontrola / pobranie / zapis UTC")</dt><dd>@r.AssessedUtc.ToString("u") / @r.RetrievedUtc.ToString("u") / @r.RecordedUtc.ToString("u")</dd>
+    <dt>@Text("Parsed / imported / eligible identities", "Odczytane / zaimportowane / kwalifikujące się tożsamości")</dt><dd>@r.ParsedRecords / @r.ImportedEvents / @r.EligibleIdentities</dd>
+    <dt>@Text("Missing results / uncertified kickoffs", "Brak wyników / niepotwierdzone godziny rozpoczęcia")</dt><dd>@r.MissingResults / @r.UnknownKickoffs</dd></dl>
+    <h3>@Text("Source authorization at inspection", "Prawa źródła podczas kontroli")</h3>
+    <ul>@foreach (var p in r.Authorizations) { <li>@p.Purpose · @Text("policy version", "wersja polityki") @p.PolicyVersion · @Text("retention days", "dni retencji"): @(p.MaximumRetentionDays?.ToString() ?? Text("no explicit cap", "brak jawnego limitu"))</li> }</ul>
+    @foreach (var m in r.Models)
+    {
+        <h3>@m.Predictor · v@m.Version</h3>
+        <p>@Text("Predictions / warm-up exclusions", "Predykcje / wykluczenia rozgrzewki"): @m.Predictions / @m.WarmupExclusions</p>
+        <p>@Text("Planned / actual cutoff / execution / publication UTC", "Plan / granica wiedzy / wykonanie / publikacja UTC"): @m.PlannedCutoffUtc.ToString("u") / @m.ActualCutoffUtc.ToString("u") / @m.ExecutedUtc.ToString("u") / @m.PublishedUtc.ToString("u")</p>
+        @foreach (var t in m.Targets)
+        {
+            <p>@DashboardPresentation.Text(t.Target.ToString(), Language) · @DashboardPresentation.Text("sampleCounts", Language): @t.Requested / @t.Eligible / @t.Excluded</p>
+            @foreach (var metric in t.Metrics)
+            { <p>@metric.Name: @DashboardPresentation.Metric(metric.Value, metric.PositiveInfinity, metric.Denominator > 0, Language) · n=@metric.Denominator</p> }
+        }
+    }
+    <h3>@Text("Issues / limitations (versioned evidence codes)", "Problemy / ograniczenia (wersjonowane kody dowodów)")</h3>
+    <ul>@foreach (var i in r.Issues) { <li><code>@i.Code</code>: @i.Count</li> }@foreach (var l in r.Limitations) { <li>@Limitation(l)</li> }</ul>
+    <details><summary>@Text("Result observation clocks (UTC)", "Czasy obserwacji wyników (UTC)")</summary>
+        @foreach (var o in r.ResultObservations)
+        { <p class="hash">@o.ObservationId · @o.EventDate<br />@Text("Source publication", "Publikacja źródła"): @(o.SourcePublishedUtc?.ToString("u") ?? DashboardPresentation.Text("unavailable", Language))<br />@Text("Retrieved / available / recorded", "Pobranie / dostępność / zapis"): @o.RetrievedUtc.ToString("u") / @o.AvailableUtc.ToString("u") / @o.RecordedUtc.ToString("u")</p> }
+    </details>
+</article>
+@code {
+    [Parameter, EditorRequired] public FootballValidationArtifact Artifact { get; set; } = default!;
+    [Parameter] public string Language { get; set; } = "pl-PL";
+    private string Text(string en, string pl) => Language == "en-GB" ? en : pl;
+    private string Limitation(string code) => code switch {
+        "source_inventory_completeness_not_certified" => Text("Source-wide inventory completeness is not certified.", "Kompletność całego źródła nie jest potwierdzona."),
+        "historical_import_does_not_establish_pre_event_observations" => Text("Historical import does not establish pre-event knowledge.", "Import historii nie potwierdza wiedzy sprzed meczu."),
+        "operator_origin_classification_is_not_independent_proof" => Text("Origin is declared by the operator, without independent certification.", "Pochodzenie deklaruje operator; brak niezależnego potwierdzenia."),
+        "no_operational_accuracy_certification" => Text("Operational model accuracy is not certified.", "Skuteczność operacyjna modeli nie jest potwierdzona."),
+        "recovery_not_exercised_by_report_inspection" => Text("This inspection does not exercise recovery on the operator dataset.", "Ta kontrola nie sprawdza odzyskiwania na zbiorze operatora."),
+        "kickoff_not_certified_by_csv_profile" => Text("The CSV profile does not certify precise kickoff evidence.", "Profil CSV nie potwierdza dokładnych godzin rozpoczęcia."),
+        "model_metrics_preserve_original_cohorts_no_ranking" => Text("Metrics retain original cohorts; no model ranking is performed.", "Metryki zachowują oryginalne kohorty; brak rankingu modeli."),
+        "real_data_validation_unavailable" => Text("Real-data validation is unavailable.", "Walidacja rzeczywistych danych jest niedostępna."),
+        "synthetic_software_test_only" => Text("Synthetic software testing only.", "Wyłącznie syntetyczny test oprogramowania."),
+        "prediction_and_evaluation_not_executed" => Text("Predictions and evaluations were not executed.", "Nie wykonano predykcji ani oceny."),
+        "no_eligible_evaluation_samples" => Text("No eligible evaluation samples exist.", "Brak kwalifikujących się próbek oceny."),
+        _ => code };
+    private string Status(ValidationReadiness state) => state switch {
+        ValidationReadiness.Verified => Text("Verified", "Zweryfikowane"),
+        ValidationReadiness.Incomplete => Text("Incomplete", "Niekompletne"),
+        ValidationReadiness.Blocked => Text("Blocked", "Zablokowane"),
+        _ => Text("Unavailable", "Niedostępne") };
+}

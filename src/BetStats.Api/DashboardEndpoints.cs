@@ -30,6 +30,9 @@ public static class DashboardEndpoints
         group.MapGet("/models", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).BacktestsAsync(filter, token));
         group.MapGet("/predictions", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).BacktestsAsync(filter, token));
         group.MapGet("/quality", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).QualityAsync(filter, token));
+        group.MapGet("/validation/{executionId:guid}", async (Guid executionId, BetStats.Application.Pipeline.IFootballValidationReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.ReadAsync(executionId, true, token)))
+            .Produces<BetStats.Application.Pipeline.FootballValidationArtifact>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/provenance", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).FixturesAsync(filter, token));
     }
 }

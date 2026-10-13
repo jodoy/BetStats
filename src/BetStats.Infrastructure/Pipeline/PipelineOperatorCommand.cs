@@ -63,6 +63,18 @@ public static class PipelineOperatorCommand
                 break;
             case "inspect": result = await jobs.StatusAsync(Id("JobId"), token); break;
             case "status": result = await jobs.StatusAsync(null, token); break;
+            case "validation-report": case "verify-validation":
+                result = await services.GetRequiredService<FootballValidation>().ReadAsync(Id("ExecutionId"), false, token); break;
+            case "inspect-readiness":
+                await using (var file = new FileStream(Text("ValidationInputPath"), FileMode.Open, FileAccess.Read, FileShare.Read, 8192, FileOptions.Asynchronous))
+                {
+                    if (file.Length is < 1 or > 1048576) throw new ArgumentException("Bounded validation input required.");
+                    var inputBytes = new byte[checked((int)file.Length)]; await file.ReadExactlyAsync(inputBytes, token);
+                    if (await file.ReadAsync(new byte[1], token) != 0) throw new ArgumentException("Validation input changed during read.");
+                    var input = JsonSerializer.Deserialize<FootballValidationInput>(inputBytes, JsonOptions) ?? throw new ArgumentException("Validation input required.");
+                    result = await services.GetRequiredService<FootballValidation>().BuildAsync(input, token);
+                }
+                break;
             default: throw new ArgumentException("Unsupported explicit pipeline action.");
         }
         if (claim is not null)
