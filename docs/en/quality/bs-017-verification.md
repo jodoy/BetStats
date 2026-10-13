@@ -25,10 +25,18 @@ independent source verification/real completeness remain unavailable.
 
 - Locked restore: passed locally.
 - Release build: passed locally, zero warnings/errors.
-- New contract unit tests: 21 passed locally; new architecture test: passed.
-- Initial targeted PostgreSQL/adapter run: 17 passed locally. Extended tests and
-  complete repository verification are in progress; final counts follow below.
-- EF model, final CI and CodeQL: pending final verification.
+- Complete local solution run: **787 passed, 0 failed, 0 skipped**: 350 unit,
+  23 architecture and 414 disposable PostgreSQL integration tests. Local integration
+  took 6 minutes; TRX counters independently confirm all three totals. New cases:
+  21 unit + 1 architecture + 29 integration/controlled-adapter tests.
+- EF `has-pending-model-changes`: passed; no pending model changes/migrations added.
+- `git diff --check`: passed. Documentation links resolve.
+- Implementation SHA `24844fd62eb267b53a3b714dc01924d34fcee4a6`:
+  [CI #58](https://github.com/jodoy/BetStats/actions/runs/38422895236) passed.
+  Logs confirm all 787 tests, zero failed/skipped and zero build warnings/errors;
+  GitHub PostgreSQL integration duration was 4m17s.
+- [CodeQL #57](https://github.com/jodoy/BetStats/actions/runs/38422895035) passed
+  for that SHA. Final documentation-head CI/CodeQL links are maintained in PR #21.
 
 ## Coverage and evidence
 
@@ -47,16 +55,21 @@ completeness is rejected by existing review; partial coverage remains partial.
 Existing suites cover concurrent fencing, cancellation, attempt budgets, sorted
 source governance, historical leakage, result/evaluation eligibility, calibration,
 all three existing models, immutable hashes and fresh/upgrade migrations. The
-complete-suite outcome must pass before these are claimed for the final head.
+complete suite passed locally and in GitHub CI for the implementation SHA above.
 
 ## Limits
 
 Local acquisition: <=1 MiB original bytes, <=500 CSV rows without truncation.
 Cohorts: <=10 acquisitions, <=3 validation executions and <=2 coverage queries.
-Status: <=100 sanitized execution heads. Provider page context pins source,
+Status: <=100 sanitized execution heads. A blocked parent can retain permitted
+RAW/child observations already committed; there is no destructive rollback of
+audit history. Provider page context pins source,
 policy/version, scope/category; per-page existing budgets and timeout apply, with
 bounded pages/cursors and aggregate response size. No transport is registered;
-there is no runtime configuration switch that enables a real API.
+there is no runtime configuration switch that enables a real API. Existing quotas
+and cooldown are per-process and reset on restart; they are not a distributed or
+durable provider quota. A concrete provider integration must address its actual
+quota contract rather than relying on that boundary as certification.
 
 Acquisition completion is not completeness, prediction eligibility or accuracy.
 Reports are frozen snapshots; later corrections require a new explicit cohort.
