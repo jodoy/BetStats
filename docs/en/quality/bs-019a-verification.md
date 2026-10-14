@@ -52,8 +52,15 @@ dotnet ef migrations has-pending-model-changes --project src/BetStats.Infrastruc
 git diff --check
 ```
 
-Final test counts and exact-head CI/CodeQL results are recorded after completion; prior
-BS-018 checks are not substitutes for BS-019A verification.
+Local full suite: **887 passed, 0 failed, 0 skipped**: 358 unit, 24 architecture,
+505 integration. Integration took 6 minutes 7 seconds, including disposable PostgreSQL
+regression. The 43 added cases are pure mapping tests inside the integration test assembly;
+they do not exercise a new database publisher. All prior 844 cases remain passing.
+Locked restore, Release build, EF pending-model check and staged diff check passed.
+
+Exact-head CI/CodeQL results are tracked in [draft PR #23](https://github.com/jodoy/BetStats/pull/23);
+prior BS-018 checks are not substitutes for BS-019A verification. A green preparation
+build does not establish the missing durable-publication acceptance criteria.
 
 ## Security
 
