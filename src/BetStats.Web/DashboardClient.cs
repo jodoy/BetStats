@@ -10,7 +10,7 @@ public sealed class DashboardClient(HttpClient http)
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
     public async Task<T> AcquisitionAsync<T>(string kind, Guid id, CancellationToken token = default)
     {
-        if (kind is not ("acquisition" or "prospective" or "acquisition-status") || id == Guid.Empty) throw new ArgumentException("Bounded monitoring resource required.");
+        if (kind is not ("acquisition" or "prospective" or "acquisition-status" or "publication" or "publication-status") || id == Guid.Empty) throw new ArgumentException("Bounded monitoring resource required.");
         using var response = await http.GetAsync("api/v1/dashboard/" + kind + "/" + id.ToString("D"), token);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(Json, token) ?? throw new InvalidDataException("Empty monitoring response.");

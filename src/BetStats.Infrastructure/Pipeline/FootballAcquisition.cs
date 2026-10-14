@@ -23,7 +23,7 @@ namespace BetStats.Infrastructure.Pipeline;
 public sealed record LocalAcquisitionInput(AcquisitionPlan Plan, string Path);
 public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOperations imports, IFootballIngestionPersistence persistence,
     IRawPayloadStore store, ISourcePolicyEvaluator policies, ISourceOperationalStatus sources, IHistoricalCoverage coverage,
-    IAnalyticalQualityGate gate, IFootballResults results)
+    IAnalyticalQualityGate gate, IFootballResults results, ProviderPublication publications)
 {
     private async Task Authorize(AcquisitionCapability capability, bool display, bool pin, CancellationToken token)
     {
@@ -208,6 +208,11 @@ public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOper
         var version = await db.Set<PipelineJobVersion>().AsNoTracking().SingleAsync(v => v.JobId == id && v.Version == job.Version, token);
         if (version.Hash != CanonicalDatasetJson.Hash(version.Content)) throw new InvalidDataException("Job definition corrupt.");
         var definition = CanonicalDatasetJson.Deserialize<PipelineDefinition>(version.Content);
+        if (definition.Kind == PipelineKind.ProviderPublication)
+        {
+            var status = await publications.StatusAsync(id, display, token);
+            return new(id, status.State, job.Enabled, true, status.Attempts);
+        }
         if (definition.Kind != PipelineKind.FootballAcquisition) throw new ArgumentException("Acquisition job required.");
         var input = JsonSerializer.Deserialize<LocalAcquisitionInput>(definition.PayloadJson, PipelineOperatorCommand.JsonOptions) ?? throw new InvalidDataException("Acquisition input missing.");
         input.Plan.Validate(); await Authorize(input.Plan.Capability, display, false, token);
@@ -217,6 +222,11 @@ public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOper
     }
     public async Task<AcquisitionArtifact> ReadAsync(Guid execution, bool display, CancellationToken token)
     {
+        var providerVersion = await (from e in db.Set<PipelineExecution>() join v in db.Set<PipelineJobVersion>() on new { e.JobId, Version = e.DefinitionVersion } equals new { v.JobId, v.Version }
+            where e.Id == execution select v).AsNoTracking().SingleAsync(token);
+        if (providerVersion.Hash != CanonicalDatasetJson.Hash(providerVersion.Content)) throw new InvalidDataException("Acquisition definition corrupt.");
+        if (CanonicalDatasetJson.Deserialize<PipelineDefinition>(providerVersion.Content).Kind == PipelineKind.ProviderPublication)
+            return await publications.AcquisitionAsync(execution, display, token);
         var artifact = await db.Set<PipelineArtifact>().AsNoTracking().SingleAsync(a => a.ExecutionId == execution, token);
         if (artifact.Hash != CanonicalDatasetJson.Hash(artifact.Content) || !await db.Set<PipelineExecution>().AnyAsync(e => e.Id == execution && e.State == PipelineState.Completed, token))
             throw new InvalidDataException("Completed acquisition artifact required.");

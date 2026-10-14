@@ -150,6 +150,13 @@ public sealed class ApiFootballPublicationMappingTests
     }
 
     [Fact]
+    public void Bound_kickoff_claim_json_retains_legacy_profile_instead_of_becoming_provider_json()
+    {
+        var bytes = Encoding.UTF8.GetBytes("{\"Version\":1,\"OriginalRawId\":\"00000000-0000-0000-0000-000000000001\",\"Value\":{}}");
+        Assert.Equal(FootballDataCsvParser.Version, FootballFixtureParser.Profile(bytes));
+        Assert.Equal(ApiFootballFixtureAdapter.Profile, FootballFixtureParser.Profile(Bytes(Payload())));
+    }
+    [Fact]
     public void Cancellation_is_observed_before_interpreting_original_raw()
     {
         var bytes = Bytes(Payload()); using var cancelled = new CancellationTokenSource(); cancelled.Cancel();

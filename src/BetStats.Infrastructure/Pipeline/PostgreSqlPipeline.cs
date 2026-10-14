@@ -105,6 +105,11 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         var job = await LockJob(claim.JobId, token); var e = await LockExecution(claim.ExecutionId, token); var now = await Now(token);
         if (!Matches(e, claim) || e.State != PipelineState.Running || e.LeaseUntilUtc <= now) throw new InvalidOperationException("execution_fence_lost");
         var terminal = e.CancelRequested ? PipelineState.Cancelled : outcome.State;
+        if (claim.Definition.Kind == PipelineKind.ProviderPublication && terminal != PipelineState.Completed)
+        {
+            artifact = null;
+            outcome = outcome with { ArtifactId = null, ArtifactHash = null };
+        }
         if (artifact is not null)
         {
             if (authorizePublication is not null) await authorizePublication(token);
@@ -126,6 +131,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         var category = e.CancelRequested ? "operator_cancelled" : outcome.Category;
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO pipeline.\"Diagnostics\" (\"Id\",\"ExecutionId\",\"JobId\",\"State\",\"Category\",\"DurationMilliseconds\") VALUES ({logId},{e.Id},{e.JobId},{(int)terminal},{category},{duration})", token);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM pipeline.\"Diagnostics\" WHERE \"RecordedUtc\"<clock_timestamp()-interval '30 days' OR \"Id\" IN (SELECT \"Id\" FROM pipeline.\"Diagnostics\" ORDER BY \"RecordedUtc\" DESC,\"Id\" OFFSET 1000)", token);
+        if (claim.Definition.Kind == PipelineKind.ProviderPublication && terminal == PipelineState.Completed) await CheckAsync(claim, token);
         await db.SaveChangesAsync(token); await tx.CommitAsync(token);
         return outcome with { State = terminal, Category = category };
     }

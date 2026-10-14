@@ -1,10 +1,10 @@
 # API-Football publication mapping v1
 
-Implementation: `ApiFootballPublicationMapping`, an unregistered pure mapping boundary.
+Implementation: `ApiFootballPublicationMapping`, the pure mapping boundary used by the registered runtime publisher.
 It does not publish canonical records, approve rights, resolve identity or issue receipts.
 Context declares original RAW/source/profile/scope/policy/clocks and is validated against
 the exact supplied bytes. The eventual publisher must independently verify those claims
-against PostgreSQL and current governance; this mapper is not a security boundary.
+against PostgreSQL and current governance; `ProviderPublication` implements those checks. This mapper is not an authorization boundary.
 
 The existing BS-018 reader remains authoritative for JSON structure, duplicate members,
 duplicate fixture IDs, league/season, pagination, nullable scores and UTC/unix agreement.

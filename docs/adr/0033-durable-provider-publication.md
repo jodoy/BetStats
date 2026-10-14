@@ -1,39 +1,98 @@
 # ADR 0033: Durable provider publication
 
-Status: Proposed; runtime publication is not enabled by this document.
+Status: Accepted for publication from already captured, authorized RAW. Live HTTP is out of scope.
 
-## Context
+## Audit and reuse
 
-See the [pre-implementation audit](../en/quality/bs-019a-audit.md). BS-018 provides
-strict API-Football parsing and original content, but deliberately blocks canonical
-JSON publication. CSV receipt and recovery contracts cannot certify JSON publication.
+See the [pre-implementation audit](../en/quality/bs-019a-audit.md). PR #22 was merged;
+BS-018 supplies strict JSON parsing but no durable publisher. The mapper and its original
+43 cases remain. Reuse canonical Sport/Competition/Season/Participant/SportingEvent,
+ProviderIdentity/IdentityResolution, Observation, EventTimeEvidence, independent football
+results, source governance and BS-015 jobs. No parallel domain or scheduler is introduced.
 
-## Decision
+## Atomic boundary and clocks
 
-Reuse canonical entities, provider identities and versioned review decisions,
-observation/result correction chains, RAW manifests, source governance and BS-015
-jobs. Do not convert JSON to CSV, infer identity from names or create a second pipeline.
+`ProviderPublication.PublishAsync` consumes a source-bound existing RAW plan. It reads
+original bytes from IRawPayloadStore, verifies SHA-256, profile, length, source code/UUID,
+original scope, retrieval/recording clocks and the pinned policy at original recording and
+current time. It invokes the existing BS-018 mapper. No retrieval or recapture is performed.
 
-Introduce a versioned source-to-domain mapping boundary that consumes the existing
-strict reader. Keep provider IDs and statuses in source provenance. Require exact
-league/season and source/profile context. Metadata publication and final-result
-eligibility are independent: postponement, cancellation and live status are metadata;
-only supported final regulation-time scores become final-result observations.
+Within one READ COMMITTED transaction it locks job, execution, then source. It checks
+current owner/attempt/lease/cancellation and resolves current reviewed identity decisions.
+It writes all eligible fixture observations, quality evidence, precise kickoff evidence,
+independent results and the authoritative immutable receipt atomically. A first save
+flushes canonical rows; a second writes the receipt after their database recording clocks.
+Both saves roll back together. Rows requiring review or excluded by quality produce
+explicit receipt outcomes/exclusions; a partial batch never claims whole-batch success.
 
-The eventual transactional publisher must pin original RAW hash/clocks/scope,
-policy UUID/version, all identity decision versions and mapping version. It must commit
-canonical observations and an immutable publication receipt atomically under current
-source rights and the BS-015 owner fence. Replay reuses that receipt. Recovery reads
-the original RAW; it never retrieves or recaptures provider data.
+`ingestion.ProviderPublications` stores a bounded canonical manifest, hash and unique
+(source, key). The key includes RAW identity/hash, full plan including origin, policy,
+mapping version and every selected decision UUID/version/target. The manifest binds
+canonical IDs, observation IDs, correction links, kickoff, nullable source publication,
+original clocks, actual publication time, job/execution/attempt and owner. Database
+triggers assign the recording clock and prohibit UPDATE/DELETE/TRUNCATE. A deferred
+constraint trigger checks owner, attempt, cancellation and unexpired lease at commit.
+After commit an independent context/connection verifies persisted receipts and references;
+pending tracked writes are never reported as committed evidence.
 
-Use existing `ScheduledStart` observations and `EventTimeEvidence` for precise time.
-Keep occurrence, source publication, retrieval, availability and database recording
-times distinct. A missing source publication timestamp remains null. Frozen artifacts
-are never rewritten; future kickoff alone establishes no prospective eligibility.
+## Revocation and concurrency
 
-## Consequences
+The existing governance audit trigger locks the same source row before approval/revocation;
+existing identity review also locks it. Publication revalidates rights and RAW just before
+commit while retaining all locks. A revocation committed first blocks the publisher. A
+revocation waiting behind an authorized publication takes effect after that transaction;
+it does not retroactively erase committed evidence. Source disable updates also serialize
+with this lock. These are database transaction order guarantees, not claims about a legal
+request arriving outside the database. Missing/unsatisfied attribution is denied. Bounded
+retention is also denied, even before expiry: this release has no approved expiry/purge
+lifecycle for durable observations and cannot invent satisfaction of that restriction.
+The deferred trigger rechecks effective policy intervals, required purposes and these
+restrictions at commit as well as checking the owner fence. No grants are invented.
 
-No runtime JSON profile registration is permitted until transactional receipts,
-governance, recovery, concurrency and PostgreSQL tests exist. This ADR does not claim
-those components have been delivered. Live HTTP remains out of scope. Publication
-monitoring must remain read-only and respect separate display rights.
+## Identity and history
+
+All five competition/season/home/away/event bindings must be explicitly reviewed. Unknown
+anchors receive unresolved decisions bound to original RAW, allowing existing review tools
+to inspect them. No names are used to choose targets; no teams, competitions or events are
+automatically invented. Canonical event context, season interval, sport and home/away roles
+must agree. Different fixtures mapped to one canonical event in a payload are blocked.
+After review, a changed decision context creates a new immutable receipt. A reviewed event
+target correction requires newer RAW and creates forward observations; old targets and
+frozen artifacts remain unchanged. Reinterpreting old RAW into a different published target
+is deliberately blocked. Ambiguity never chooses the first candidate.
+
+Date, ScheduledStart and EventStatus observations retain correction chains and actual
+availability/recording clocks. FT regulation-time results are independently versioned;
+nullable half-time scores stay nullable. AET/PEN completion does not imply supported final
+labels. Unknown statuses are rejected or explicitly excluded, never finalized. A result
+observed later cannot be made available at an earlier prediction cutoff. Missing source
+publication time remains null; kickoff is not substituted for publication/observation time.
+
+## Recovery and parent acknowledgment
+
+Canonical publication/receipt is stage one. BS-015 artifact/terminal acknowledgment is
+stage two and remains a separate transaction. If interruption occurs before stage-one
+commit, its writes roll back and recovery reparses the same original RAW. If interruption
+occurs after stage-one commit, the same immutable key reuses the receipt without new
+observations. Parent acknowledgment rechecks governance/integrity. It may be blocked or
+cancelled after a valid child commit; the committed child receipt remains inspectable.
+Existing BS-015 live-session locks, bounded attempts, retry/recover and cancellation are
+reused. Exhaustion stops execution; recovery never makes a provider request.
+
+## Evidence and monitoring
+
+BS-016 validation and BS-017 acquisition/cohort readers accept linked JSON publication
+observations. Existing precise-time/result readers verify JSON against original RAW.
+Origin (Synthetic/OperatorDeclaredReal/Unknown), chronology, source timestamps, coverage
+and prediction eligibility remain separate. No independent coverage, warm-up history,
+prediction or metric is fabricated. Current display rights are checked by bounded
+Development-loopback GET projections and PL/EN views. GET performs no mutation or model
+execution. There are no public mutation endpoints, startup migrations or HTTP activation.
+
+## Schema and verification
+
+Additive migration `20261014115707_DurableProviderPublication` adds only the receipt table,
+indexes, restrictive FKs, trusted recording/immutability and deferred fencing triggers.
+Fresh creation, upgrade from the preceding schema and legacy byte/hash/clock invariants
+are exercised on disposable PostgreSQL. See the verification report and executable
+[English](../runbooks/provider-publication.en.md) / [Polish](../runbooks/provider-publication.pl.md) runbooks.

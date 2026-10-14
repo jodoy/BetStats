@@ -1982,6 +1982,61 @@ namespace BetStats.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("BetStats.Infrastructure.Persistence.ProviderPublicationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("Content")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<Guid>("ExecutionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("PolicyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RawId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RecordedUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("clock_timestamp()");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExecutionId");
+
+                    b.HasIndex("PolicyId");
+
+                    b.HasIndex("RawId", "SourceId");
+
+                    b.HasIndex("SourceId", "Key")
+                        .IsUnique();
+
+                    b.ToTable("ProviderPublications", "ingestion", t =>
+                        {
+                            t.HasCheckConstraint("CK_ProviderPublications_Hashes", "\"Key\" ~ '^[0-9a-f]{64}$' AND \"Hash\" ~ '^[0-9a-f]{64}$'");
+
+                            t.HasCheckConstraint("CK_ProviderPublications_Size", "octet_length(\"Content\") BETWEEN 1 AND 16777216");
+                        });
+                });
+
             modelBuilder.Entity("BetStats.Infrastructure.Persistence.ResultOperationEvent", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2765,6 +2820,28 @@ namespace BetStats.Infrastructure.Persistence.Migrations
                     b.HasOne("BetStats.Infrastructure.Persistence.Entities.DatasetArtifact", null)
                         .WithMany()
                         .HasForeignKey("MetadataSnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("BetStats.Infrastructure.Persistence.ProviderPublicationRecord", b =>
+                {
+                    b.HasOne("BetStats.Infrastructure.Pipeline.PipelineExecution", null)
+                        .WithMany()
+                        .HasForeignKey("ExecutionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("BetStats.Domain.Governance.SourcePolicy", null)
+                        .WithMany()
+                        .HasForeignKey("PolicyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("BetStats.Infrastructure.Persistence.Entities.RawPayload", null)
+                        .WithMany()
+                        .HasForeignKey("RawId", "SourceId")
+                        .HasPrincipalKey("Id", "DataSourceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

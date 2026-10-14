@@ -7,8 +7,8 @@ using BetStats.Domain.Sports;
 
 namespace BetStats.Infrastructure.Ingestion;
 
-// Mapping commands, not canonical entities or authorization receipts. Deliberately
-// unregistered until the transactional publisher can enforce current DB governance.
+// Mapping commands, not canonical entities or authorization receipts. The durable
+// publisher independently verifies PostgreSQL governance and original RAW provenance.
 public sealed record ApiFootballPublicationContext(int Version, Guid SourceId, string Provider,
     string Profile, Guid RawId, string RawHash, FootballImportScope OriginalScope,
     Guid PolicyId, int PolicyVersion, DateTime RetrievedUtc, DateTime RecordedUtc,

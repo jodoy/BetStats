@@ -70,6 +70,15 @@ public static class PipelineOperatorCommand
                     Enum.Parse<BetStats.Application.Providers.AcquisitionCategory>(Text("Category")), Enum.Parse<ValidationEvidenceKind>(Text("EvidenceKind")),
                     config["Pipeline:DateObservationId"] is { } observation ? Guid.Parse(observation) : null,
                     config["Pipeline:CorrectsKickoffId"] is { } correction ? Guid.Parse(correction) : null, token); break;
+            case "provider-publication-plan":
+                result = await services.GetRequiredService<ProviderPublication>().PlanAsync(Id("RawId"),
+                    new(1, int.Parse(Text("League"), System.Globalization.CultureInfo.InvariantCulture), int.Parse(Text("Season"), System.Globalization.CultureInfo.InvariantCulture),
+                        DateOnly.ParseExact(Text("From"), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), DateOnly.ParseExact(Text("To"), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)),
+                    Enum.Parse<ValidationEvidenceKind>(Text("EvidenceKind")), token); break;
+            case "provider-publication-inspect":
+                result = await services.GetRequiredService<ProviderPublication>().StatusAsync(Id("JobId"), false, token); break;
+            case "provider-publication-verify":
+                result = await services.GetRequiredService<ProviderPublication>().VerifyAsync(Id("ReceiptId"), false, token); break;
             case "acquisition-inspect": case "acquisition-readiness":
                 result = await services.GetRequiredService<FootballAcquisition>().ReadAsync(Id("ExecutionId"), false, token); break;
             case "prospective-report":
