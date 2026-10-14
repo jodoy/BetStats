@@ -173,7 +173,7 @@ public sealed class ApiFootballBoundaryTests
         j["response"]![0]!["score"]!["fulltime"]!["home"] = null; j["response"]![0]!["goals"]!["home"] = null;
         var missing = Read(j.ToJsonString()).Single(); Assert.Null(missing.FullHome); Assert.Contains("missing_final_result", missing.Blockers);
     }
-    [Theory] [InlineData("pl-PL", "Aktywacja live jest zablokowana")] [InlineData("en-GB", "Live activation is blocked")]
+    [Theory] [InlineData("pl-PL", "Domyślnie wyłączony")] [InlineData("en-GB", "Disabled by default")]
     public async Task Readiness_is_bilingual_and_does_not_claim_live_evidence(string language, string label)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();

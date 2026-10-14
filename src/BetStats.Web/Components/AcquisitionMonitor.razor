@@ -9,6 +9,7 @@
 <ReadState State="@state" Language="@Language" Demo="false" />
 @if (acquisition is {} a) { <AcquisitionView Artifact="a" Language="@Language" /> }
 @if (publication is {} p) { <ProviderPublicationView Artifact="p" Language="@Language" /> }
+@if (activation is {} active) { <ProviderActivationView Status="active" Language="@Language" /> }
 @if (publicationStatus is {} ps)
 {
     <h2>@T("Publication and recovery status", "Stan publikacji i recovery"): @JobState(ps.State)</h2>
@@ -49,6 +50,7 @@
     private AcquisitionArtifact? acquisition;
     private ProviderPublicationArtifact? publication;
     private ProviderPublicationStatus? publicationStatus;
+    private ProviderActivationStatus? activation;
     private ProspectiveCohortArtifact? cohort;
     private AcquisitionJobStatus? status;
     private string Coverage(string value) => value switch { "VerifiedComplete" => T("Verified complete", "Potwierdzone kompletne"), "VerifiedEmpty" => T("Verified empty", "Potwierdzone puste"), "Partial" => T("Partial", "Częściowe"), "Conflicting" => T("Conflicting", "Sprzeczne"), _ => T("Unavailable / unknown", "Niedostępne / nieznane") };
@@ -62,9 +64,10 @@
     protected override async Task OnParametersSetAsync()
     {
         state = "loading"; acquisition = null; cohort = null; status = null;
-        publication = null; publicationStatus = null;
+        publication = null; publicationStatus = null; activation = null;
         try {
             if (Kind == "acquisition") acquisition = await Client.AcquisitionAsync<AcquisitionArtifact>(Kind, Id);
+            else if (Kind == "provider-activation") activation = await Client.AcquisitionAsync<ProviderActivationStatus>(Kind, Id);
             else if (Kind == "publication") publication = await Client.AcquisitionAsync<ProviderPublicationArtifact>(Kind, Id);
             else if (Kind == "publication-status") publicationStatus = await Client.AcquisitionAsync<ProviderPublicationStatus>(Kind, Id);
             else if (Kind == "prospective") cohort = await Client.AcquisitionAsync<ProspectiveCohortArtifact>(Kind, Id);

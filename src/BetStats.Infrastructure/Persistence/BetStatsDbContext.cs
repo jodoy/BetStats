@@ -108,6 +108,7 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
         payloads.HasIndex(payload => payload.ContentHashSha256);
         CanonicalModelConfiguration.Configure(modelBuilder);
         ProviderPublicationConfiguration.Configure(modelBuilder);
+        ProviderActivationConfiguration.Configure(modelBuilder);
         ProvenanceModelConfiguration.Configure(modelBuilder);
         GovernanceModelConfiguration.Configure(modelBuilder);
         IngestionModelConfiguration.Configure(modelBuilder);
@@ -135,6 +136,8 @@ public sealed class BetStatsDbContext(DbContextOptions<BetStatsDbContext> option
     {
         foreach (var entry in ChangeTracker.Entries())
         {
+            if (entry.Entity is ProviderGrantRecord or ProviderActivationEvent or ProviderRequestEvent && entry.State is EntityState.Modified or EntityState.Deleted)
+                throw new InvalidOperationException("Provider activation evidence is append-only.");
             if (entry.Entity is ProviderPublicationRecord && entry.State is EntityState.Modified or EntityState.Deleted)
                 throw new InvalidOperationException("Provider publication receipts are append-only.");
             if (entry.Entity is BetStats.Infrastructure.Pipeline.PipelineJobVersion or BetStats.Infrastructure.Pipeline.PipelineReceipt or BetStats.Infrastructure.Pipeline.PipelineArtifact && entry.State is EntityState.Modified or EntityState.Deleted)

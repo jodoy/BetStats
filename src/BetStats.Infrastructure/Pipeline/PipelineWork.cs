@@ -20,10 +20,14 @@ public sealed record PostmatchInput(Guid PredictionExecutionId, Guid BacktestId,
 
 public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, FootballImportOperations imports,
     IResultDatasetOperations datasets, IFootballResultDatasets snapshots, IHistoricalBacktests backtests, IFootballIngestionPersistence ingestion, FootballValidation validation,
-    FootballAcquisition acquisition, FootballProspectiveReports prospective, ProviderPublication publications)
+    FootballAcquisition acquisition, FootballProspectiveReports prospective, ProviderPublication publications, ProviderActivation activation)
 {
     internal async Task AuthorizePublicationAsync(PipelineClaim claim, byte[] artifact, CancellationToken token)
     {
+        if (claim.Definition.Kind == PipelineKind.ProviderAcquisition)
+        {
+            await activation.AuthorizeAcknowledgmentAsync(claim, token); return;
+        }
         if (claim.Definition.Kind == PipelineKind.ProviderPublication)
         {
             using var publicationDocument = JsonDocument.Parse(artifact);
@@ -79,6 +83,11 @@ public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, 
         var artifactCutoff = claim.StartedUtc;
         switch (claim.Definition.Kind)
         {
+            case PipelineKind.ProviderAcquisition:
+                var acquired = await activation.ExecuteAsync(claim, Input<ProviderAcquisitionInput>(claim), approval, token);
+                if (acquired.Outcome.State != PipelineState.Completed) return (acquired.Outcome, null);
+                result = acquired.Result!;
+                break;
             case PipelineKind.ProviderPublication:
                 var publication = await publications.PublishAsync(claim, Input<ProviderPublicationInput>(claim), approval, token);
                 if (publication.Report.State != ProviderPublicationState.Published)

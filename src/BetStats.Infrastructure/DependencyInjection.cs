@@ -23,6 +23,13 @@ public static class DependencyInjection
         services.AddScoped<BetStats.Infrastructure.Pipeline.FootballValidation>();
         services.AddScoped<BetStats.Infrastructure.Pipeline.FootballAcquisition>();
         services.AddScoped<BetStats.Infrastructure.Pipeline.ProviderPublication>();
+        services.AddScoped<BetStats.Infrastructure.Pipeline.ProviderActivation>();
+        services.AddScoped<IProviderActivationReports>(p => p.GetRequiredService<BetStats.Infrastructure.Pipeline.ProviderActivation>());
+        services.TryAddSingleton(new BetStats.Infrastructure.Pipeline.ProviderTransportOptions(false, false, () => null));
+        services.AddSingleton(_ => new BetStats.Infrastructure.Pipeline.ApiFootballHttpTransport(new HttpMessageInvoker(new SocketsHttpHandler {
+            AllowAutoRedirect = false, UseCookies = false, UseProxy = false, AutomaticDecompression = System.Net.DecompressionMethods.None,
+            ConnectTimeout = TimeSpan.FromSeconds(10), PooledConnectionLifetime = TimeSpan.FromMinutes(5), MaxConnectionsPerServer = 1
+        })));
         services.AddScoped<BetStats.Application.Providers.IProviderPublicationReports>(p => p.GetRequiredService<BetStats.Infrastructure.Pipeline.ProviderPublication>());
         services.AddScoped<BetStats.Infrastructure.Pipeline.FootballProspectiveReports>();
         services.AddScoped<BetStats.Application.Providers.IFootballAcquisitionReports>(p => p.GetRequiredService<BetStats.Infrastructure.Pipeline.FootballProspectiveReports>());
@@ -36,7 +43,8 @@ public static class DependencyInjection
         services.AddScoped<ISourcePolicyEvaluator, SourcePolicyEvaluator>();
         services.AddScoped<ISourceOperationalStatus, SourceOperationalStatusReader>();
         services.AddScoped<AuthorizedProviderExecutor>();
-        services.AddScoped<IFootballIngestionPersistence, FootballIngestionPersistence>();
+        services.AddScoped<FootballIngestionPersistence>();
+        services.AddScoped<IFootballIngestionPersistence>(p => p.GetRequiredService<FootballIngestionPersistence>());
         services.AddScoped<FootballIngestion>();
         services.AddScoped<FootballImportOperations>();
         services.AddScoped<FootballImportOwnership>();

@@ -1,0 +1,40 @@
+@using BetStats.Application.Providers
+<article class="card" lang="@Language">
+<h2>@T("Authorized provider activation", "Autoryzowana aktywacja dostawcy")</h2>
+<dl>
+<dt>@T("Configured / authorized / enabled / operational", "Skonfigurowany / autoryzowany / włączony / działający")</dt>
+<dd>@Yes(Status.Configured) / @Yes(Status.Authorized) / @Yes(Status.Enabled) / @Yes(Status.Operational)</dd>
+<dt>@T("Credential present (value hidden)", "Dane dostępowe obecne (wartość ukryta)")</dt><dd>@Yes(Status.CredentialPresent)</dd>
+<dt>@T("Authorization evidence", "Dowód autoryzacji")</dt><dd>@T("Operator-declared; no independent certification", "Deklaracja operatora; bez niezależnej certyfikacji")</dd>
+<dt>@T("Observation origin", "Pochodzenie obserwacji")</dt><dd>@Origin</dd>
+<dt>@T("League / season / UTC window", "Liga / sezon / okno UTC")</dt><dd>@Status.Canary?.League / @Status.Canary?.Season / @Status.Canary?.From — @Status.Canary?.To</dd>
+<dt>@T("Approved acquisition category / source policy", "Zatwierdzona kategoria pozyskiwania / polityka źródła")</dt><dd>@Status.Category / @Status.PolicyId / @Status.PolicyVersion</dd>
+<dt>@T("Consumed / configured request budget", "Zużyty / skonfigurowany budżet żądań")</dt><dd>@Status.UsedRequests / @Status.MaximumRequests</dd>
+<dt>@T("Provider remaining quota", "Pozostały limit po stronie dostawcy")</dt><dd>@T("Unknown", "Nieznany")</dd>
+<dt>@T("Next request no earlier than", "Kolejne żądanie nie wcześniej niż")</dt><dd>@Status.NextRequestUtc?.ToString("u")</dd>
+</dl>
+@foreach (var blocker in Status.Blockers) { <p>@T("Blocked", "Zablokowane"): <code>@blocker</code></p> }
+<h3>@T("Acquisition and recovery evidence", "Dowody pozyskania i odzyskiwania")</h3>
+@foreach (var attempt in Status.Attempts) { <p>@attempt.ExecutionId · @attempt.Stage · <code>@attempt.Category</code> · @attempt.RecordedUtc.ToString("u") · RAW @attempt.RawId</p> }
+@if (Status.PublicationJobId is {} job) { <p><a href="/monitor/publication-status/@job?lang=@Language">@T("Publication, identity review and recovery", "Publikacja, przegląd tożsamości i odzyskiwanie")</a></p> }
+@if (Status.Publication is {} publication)
+{
+    <p>@T("Canonical publication state", "Stan publikacji kanonicznej"): @publication.State</p>
+    @foreach (var receipt in publication.Receipts) { <ProviderPublicationView Artifact="receipt" Language="@Language" /> }
+}
+<p>@T("Upcoming observed fixtures and final results are shown in verified publication receipts. Frozen prediction readiness and prospective cohort availability require the existing independent evidence gates; configuration provides no certification.", "Nadchodzące obserwowane mecze i wyniki końcowe są widoczne w zweryfikowanych potwierdzeniach publikacji. Gotowość zamrożonych predykcji i dostępność kohorty prospektywnej wymagają istniejących niezależnych bramek dowodowych; konfiguracja nie stanowi certyfikacji.")</p>
+@if (Status.Cohort is {} cohort)
+{
+    <p>@T("Immutable prospective report assessed at", "Niezmienny raport prospektywny oceniony o"): @cohort.Report.AssessedUtc.ToString("u") · SHA256 @cohort.Hash</p>
+    <p>@T("Observed / before kickoff / frozen / eligible frozen / final results", "Obserwowane / przed meczem / zamrożone / kwalifikujące się zamrożone / wyniki końcowe"): @cohort.Report.ObservedEvents / @cohort.Report.PreEventObserved / @cohort.Report.FrozenPredictions / @cohort.Report.EligiblePredictions / @cohort.Report.CompletedMatches</p>
+    <a href="/monitor/prospective/@cohort.ExecutionId?lang=@Language">@T("Inspect prospective evidence and blockers", "Sprawdź dowody prospektywne i blokady")</a>
+}
+else { <p>@T("Prospective cohort and frozen prediction readiness unavailable: an explicit report bound to this RAW is required.", "Kohorta prospektywna i gotowość zamrożonych predykcji są niedostępne: wymagany jest jawny raport związany z tym RAW.")</p> }
+</article>
+@code {
+    [Parameter, EditorRequired] public ProviderActivationStatus Status { get; set; } = default!;
+    [Parameter] public string Language { get; set; } = "pl-PL";
+    private string T(string en, string pl) => Language == "en-GB" ? en : pl;
+    private string Yes(bool value) => value ? T("Yes", "Tak") : T("No", "Nie");
+    private string Origin => Status.EvidenceKind == BetStats.Application.Pipeline.ValidationEvidenceKind.Synthetic ? T("Synthetic controlled test", "Syntetyczny test kontrolowany") : Status.LatestRawId is null ? T("No observation", "Brak obserwacji") : T("HTTP observed; authorization declared by operator", "Zaobserwowane przez HTTP; autoryzacja zadeklarowana przez operatora");
+}

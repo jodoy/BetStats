@@ -23,6 +23,9 @@ public static class DashboardEndpoints
             { return Results.Problem(statusCode: 409, title: "Stored evidence unavailable"); }
         });
         IDashboardQueries Queries(IDashboardQueries queries) => demo ? new DemoDashboardQueries() : queries;
+        group.MapGet("/provider-activation/{sourceId:guid}", async (Guid sourceId, BetStats.Application.Providers.IProviderActivationReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(sourceId, true, token)))
+            .Produces<BetStats.Application.Providers.ProviderActivationStatus>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/fixtures", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).FixturesAsync(filter, token));
         group.MapGet("/publication/{receiptId:guid}", async (Guid receiptId, BetStats.Application.Providers.IProviderPublicationReports reports, CancellationToken token) =>
             demo ? Results.NotFound() : Results.Ok(await reports.VerifyAsync(receiptId, true, token)))

@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddPersistence(builder.Configuration);
+builder.Services.AddSingleton(new BetStats.Infrastructure.Pipeline.ProviderTransportOptions(builder.Environment.IsDevelopment(),
+    Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_ENABLED") == "true", () => Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_KEY")));
 if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Dashboard:DemoEnabled"))
     builder.Services.AddScoped<BetStats.Application.Dashboard.IDashboardQueries, BetStats.Application.Dashboard.DemoDashboardQueries>();
 builder.Services.AddProblemDetails();

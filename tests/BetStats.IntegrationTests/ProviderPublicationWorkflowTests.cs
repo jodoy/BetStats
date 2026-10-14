@@ -41,10 +41,10 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
     private static readonly PipelineApproval Approval = new("test:publication", "Controlled fictional original-RAW publication", true);
     private static readonly ApiFootballCanary Canary = new(1, 999999, 2026, new(2026, 10, 13), new(2026, 10, 19));
     private static readonly FootballImportScope Scope = new("999999", "2026");
-    private sealed record Setup(ResultOperationsWorkflowTests.Scenario Scenario, Guid EventId, Guid HomeId, Guid AwayId, Guid PolicyId, Guid OriginalSourceId);
-    private async Task<Setup> Create(string? restriction = null, bool reviewed = true)
+    internal sealed record Setup(ResultOperationsWorkflowTests.Scenario Scenario, Guid EventId, Guid HomeId, Guid AwayId, Guid PolicyId, Guid OriginalSourceId);
+    internal async Task<Setup> Create(string? restriction = null, bool reviewed = true, Action<IServiceCollection>? configure = null)
     {
-        var s = await new ResultOperationsWorkflowTests(fixture).Create(); var originalSource = s.Source; var db = s.Db; var now = await s.Now();
+        var s = await new ResultOperationsWorkflowTests(fixture).Create(configure: configure); var originalSource = s.Source; var db = s.Db; var now = await s.Now();
         var source = new DataSource { Id = Guid.NewGuid(), Code = "api-football-fiction-" + Guid.NewGuid().ToString("N"), DisplayName = "Controlled fictional API JSON", IsEnabled = true, CreatedAtUtc = now };
         var football = ReferenceSports.All.Single(s => s.Code == "football").Id;
         var competition = new Competition(Guid.NewGuid(), football, "Fictional JSON league", null, CompetitionType.League);
@@ -75,7 +75,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
             db.Add(new IdentityResolution(Guid.NewGuid(), identity, ResolutionStatus.Resolved, new(kind, target), Approval.Actor, Approval.Reason, now));
         }
     }
-    private static JsonObject Payload(string status = "NS", int goals = 2, int hour = 18) => JsonSerializer.SerializeToNode(new {
+    internal static JsonObject Payload(string status = "NS", int goals = 2, int hour = 18) => JsonSerializer.SerializeToNode(new {
         get = "fixtures", errors = Array.Empty<string>(), results = 1, paging = new { current = 1, total = 1 },
         response = new[] { new { fixture = new { id = 999001, timezone = "UTC", date = $"2026-10-15T{hour:00}:00:00Z",
             timestamp = new DateTimeOffset(2026, 10, 15, hour, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds(), status = new { @short = status } },
@@ -84,7 +84,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
             score = new { fulltime = new { home = status == "FT" ? (int?)goals : null, away = status == "FT" ? (int?)1 : null },
                 halftime = new { home = status == "FT" ? (int?)1 : null, away = status == "FT" ? (int?)0 : null } } } }
     })!.AsObject();
-    private static async Task<Guid> Capture(Setup setup, JsonObject? json = null, DateTime? retrieved = null, bool complete = true)
+    internal static async Task<Guid> Capture(Setup setup, JsonObject? json = null, DateTime? retrieved = null, bool complete = true)
     {
         var s = setup.Scenario; var persistence = s.Get<IFootballIngestionPersistence>(); var store = s.Get<IRawPayloadStore>();
         var bytes = Encoding.UTF8.GetBytes((json ?? Payload()).ToJsonString());
@@ -101,7 +101,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
         await jobs.PlanAsync(id, new(1, PipelineKind.ProviderPublication, new(await s.Now()), JsonSerializer.Serialize(input), MaximumAttempts: maximum), Approval);
         await jobs.SetEnabledAsync(id, true, Approval); return (input, (await jobs.AcquireAsync(Approval))!);
     }
-    private static async Task<ProviderPublicationArtifact> Publish(Setup setup, Guid rawId)
+    internal static async Task<ProviderPublicationArtifact> Publish(Setup setup, Guid rawId)
     { var p = await Claim(setup, rawId); return await setup.Scenario.Get<ProviderPublication>().PublishAsync(p.Claim, p.Input, Approval); }
     private static async Task Acknowledge(Setup setup, PipelineClaim claim)
     {
@@ -383,7 +383,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
         { app.Use((context, following) => { context.Connection.RemoteIpAddress = IPAddress.Loopback; return following(); }); next(app); };
     }
-    private sealed class ApiHost(string connection, string root, string environment = "Development") : WebApplicationFactory<Program>
+    internal sealed class ApiHost(string connection, string root, string environment = "Development") : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment(environment)
             .UseSetting("ConnectionStrings:BetStats", connection).UseSetting("Ingestion:RawStoragePath", root)

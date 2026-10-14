@@ -7,8 +7,8 @@ using BetStats.Domain.Sports;
 
 namespace BetStats.Infrastructure.Ingestion;
 
-// Deliberately not registered. Only the missing-authorization mock boundary is delivered.
-// A production/default HttpClient factory is intentionally absent.
+// Constructed only behind the durable Development activation/reservation gate.
+// Controlled tests can inject an invoker; no standalone adapter is registered.
 public sealed class ApiFootballFixtureAdapter : IContentProviderAdapter
 {
     public const string Profile = "api-football-fixtures-v1";
@@ -68,7 +68,7 @@ public sealed class ApiFootballFixtureAdapter : IContentProviderAdapter
             }
             if ((int)response.StatusCode >= 500 || (int)response.StatusCode == 499)
                 return Failure(ProviderErrorCategory.TemporaryUnavailability);
-            // Redirects are failures. A future real handler MUST disable redirects, cookies and retries.
+            // Redirects are failures. The registered pooled handler disables redirects/cookies/proxy.
             if (response.StatusCode != HttpStatusCode.OK || response.Content.Headers.ContentType?.MediaType != "application/json" ||
                 response.Content.Headers.ContentLength is > 1048576) return Failure(ProviderErrorCategory.InvalidResponse);
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);

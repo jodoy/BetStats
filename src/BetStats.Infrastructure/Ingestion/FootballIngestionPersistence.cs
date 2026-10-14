@@ -24,6 +24,7 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
     private Guid? lastPolicy;
     private Guid? lastApproval;
     private string[] issues = [];
+    internal void ResetProviderAttempt() { lastPolicy = null; lastApproval = null; issues = []; }
     private Task<DateTime> Now(CancellationToken token) => context.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync(token);
 
     public async Task<ImportReport> BeginAsync(Guid attemptId, Guid sourceId, CancellationToken cancellationToken)
@@ -60,22 +61,39 @@ public sealed class FootballIngestionPersistence(BetStatsDbContext context, ISou
     private async Task LockSource(Guid sourceId, CancellationToken token) =>
         _ = await context.Database.SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM ingestion.\"DataSources\" WHERE \"Id\" = {sourceId} FOR UPDATE").ToListAsync(token);
 
-    public async Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, FootballImportScope scope, CancellationToken cancellationToken)
+    public Task<RawCapture> CaptureAsync(ImportReport attempt, RetrievedContent content, StoredPayload payload, FootballImportScope scope, CancellationToken cancellationToken) =>
+        CaptureCore(attempt, content, payload, scope, cancellationToken);
+    internal Task<RawCapture> CaptureProviderAsync(ImportReport attempt, RetrievedContent content, FootballImportScope scope,
+        BetStats.Application.Pipeline.PipelineClaim claim, Func<CancellationToken, Task> authorize, CancellationToken token) =>
+        CaptureCore(attempt, content, null, scope, token, claim, authorize);
+    private async Task<RawCapture> CaptureCore(ImportReport attempt, RetrievedContent content, StoredPayload? payload, FootballImportScope scope, CancellationToken cancellationToken,
+        BetStats.Application.Pipeline.PipelineClaim? claim = null, Func<CancellationToken, Task>? authorize = null)
     {
         if (!scope.IsValid) throw new IngestionDeniedException("invalid_original_scope", "Provenance");
-        if (payload.Length != content.Bytes.Length || payload.Hash != Convert.ToHexStringLower(SHA256.HashData(content.Bytes.Span)))
+        if (payload is not null && (payload.Length != content.Bytes.Length || payload.Hash != Convert.ToHexStringLower(SHA256.HashData(content.Bytes.Span))))
             throw new IngestionDeniedException("raw_manifest_mismatch", "Provenance");
         await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        if (claim is not null)
+        {
+            _ = await context.Database.SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM pipeline.\"Jobs\" WHERE \"Id\"={claim.JobId} FOR UPDATE").ToListAsync(cancellationToken);
+            _ = await context.Database.SqlQuery<Guid>($"SELECT \"Id\" AS \"Value\" FROM pipeline.\"Executions\" WHERE \"Id\"={claim.ExecutionId} FOR UPDATE").ToListAsync(cancellationToken);
+        }
         await LockSource(attempt.DataSourceId, cancellationToken);
+        if (authorize is not null) await authorize(cancellationToken);
         if (ownership is not null) await ownership.EnsureAsync(context, cancellationToken);
         await Guard(attempt.DataSourceId, [DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention], cancellationToken);
+        // Provider staging is a source-data use: retain the same authorization lock
+        // through staging and manifest commit, so revocation cannot slip between them.
+        payload ??= await (rawStore ?? throw new InvalidOperationException("RAW store required.")).StageAsync(content.Bytes, cancellationToken);
         var now = await Now(cancellationToken);
         var raw = new RawPayload { Id = Guid.NewGuid(), DataSourceId = attempt.DataSourceId, IngestionRunId = attempt.RunId,
             RetrievedAtUtc = content.RetrievedAtUtc, CreatedAtUtc = now, ContentType = content.ContentType, ContentHashSha256 = payload.Hash,
             StorageKey = payload.StorageKey, ByteLength = payload.Length, ExternalReference = "fixture:" + (content.ParserVersion ?? FootballFixtureParser.Profile(content.Bytes)) };
         context.Add(raw);
         context.FootballRawContexts.Add(new() { RawId = raw.Id, SourceId = raw.DataSourceId, CompetitionReference = scope.CompetitionReference, SeasonReference = scope.SeasonReference });
-        await Save(cancellationToken); await transaction.CommitAsync(cancellationToken);
+        await Save(cancellationToken);
+        if (authorize is not null) await authorize(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return new(raw.Id, payload, raw.RetrievedAtUtc, raw.CreatedAtUtc, raw.RecordedAtUtc);
     }
 
