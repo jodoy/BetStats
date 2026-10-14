@@ -24,6 +24,12 @@ public static class DashboardEndpoints
         });
         IDashboardQueries Queries(IDashboardQueries queries) => demo ? new DemoDashboardQueries() : queries;
         group.MapGet("/fixtures", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).FixturesAsync(filter, token));
+        group.MapGet("/publication/{receiptId:guid}", async (Guid receiptId, BetStats.Application.Providers.IProviderPublicationReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.VerifyAsync(receiptId, true, token)))
+            .Produces<BetStats.Application.Providers.ProviderPublicationArtifact>(200).ProducesProblem(403).ProducesProblem(409);
+        group.MapGet("/publication-status/{jobId:guid}", async (Guid jobId, BetStats.Application.Providers.IProviderPublicationReports reports, CancellationToken token) =>
+            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(jobId, true, token)))
+            .Produces<BetStats.Application.Providers.ProviderPublicationStatus>(200).ProducesProblem(403).ProducesProblem(409);
         foreach (var kind in new[] { "competitions", "seasons", "teams" })
             group.MapGet("/" + kind, async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).ChoicesAsync(kind, filter, token));
         group.MapGet("/backtests", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).BacktestsAsync(filter, token));

@@ -16,7 +16,7 @@ public sealed record AcquisitionCapability(int Version, Guid SourceId, string Pr
     {
         if (Version != 1 || SourceId == Guid.Empty || PolicyId == Guid.Empty || PolicyVersion < 1 ||
             string.IsNullOrWhiteSpace(Provider) || Provider.Length > 100 || Provider.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_') ||
-            !Enum.IsDefined(Transport) || Profile is not ("football-history-v1" or "source-event-time-v1") || Categories is null || Categories.Count is < 1 or > 4 ||
+            !Enum.IsDefined(Transport) || Profile is not ("football-history-v1" or "source-event-time-v1" or "api-football-fixtures-v1") || Categories is null || Categories.Count is < 1 or > 4 ||
             Categories.Distinct().Count() != Categories.Count || Categories.Any(c => !Enum.IsDefined(c)) ||
             MaximumBytes is < 1 or > 1048576 || MaximumPages is < 1 or > 100 || Transport == FootballTransport.LocalCsv && MaximumPages != 1)
             throw new ArgumentException("Supported bounded acquisition capability required; technical capabilities grant no rights.");

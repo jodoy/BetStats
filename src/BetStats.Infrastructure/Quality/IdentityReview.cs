@@ -42,7 +42,8 @@ public sealed class IdentityReview(BetStatsDbContext db) : IIdentityReview
         // any canonical event exists. This establishes sport scope, never a target.
         if (await db.IdentityResolutions.AnyAsync(d => d.ProviderIdentityId == identity.Id && d.RawPayloadId != null &&
             db.RawPayloads.Any(r => r.Id == d.RawPayloadId && r.DataSourceId == identity.DataSourceId &&
-                r.ExternalReference == "fixture:" + BetStats.Infrastructure.Ingestion.HistoricalFootballCsvParser.Version &&
+                (r.ExternalReference == "fixture:" + BetStats.Infrastructure.Ingestion.HistoricalFootballCsvParser.Version ||
+                 r.ExternalReference == "fixture:" + BetStats.Infrastructure.Ingestion.ApiFootballFixtureAdapter.Profile) &&
                 db.FootballRawContexts.Any(c => c.RawId == r.Id)), token)) return FootballQualityRules.Football;
         // Legacy unresolved anchors: require RAW-associated event/name observations
         // and reviewed football competition context in that same capture.

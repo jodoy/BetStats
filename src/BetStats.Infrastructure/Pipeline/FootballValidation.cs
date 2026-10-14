@@ -47,6 +47,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         var bytes = await Raw(input, false, token);
         IFootballMetadataParser parser = input.Profile switch
         {
+            ApiFootballFixtureAdapter.Profile => new ApiFootballJsonParser(),
             HistoricalFootballCsvParser.Version => new HistoricalFootballCsvParser(),
             FootballResultsCsvParser.Version => new FootballResultsCsvParser(),
             FootballDataCsvParser.Version => new FootballDataCsvParser(),
@@ -85,9 +86,9 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         var models = new List<ValidationModel>();
         foreach (var reference in input.Publications.OrderBy(p => p.PredictionExecutionId))
             models.Add(await Model(input, reference, true, token));
-        var limitations = new List<string> { "source_inventory_completeness_not_certified", "historical_import_does_not_establish_pre_event_observations",
+        var limitations = new List<string> { "source_inventory_completeness_not_certified", input.Profile == ApiFootballFixtureAdapter.Profile ? "origin_and_chronology_require_independent_prospective_gates" : "historical_import_does_not_establish_pre_event_observations",
             "operator_origin_classification_is_not_independent_proof", "no_operational_accuracy_certification", "recovery_not_exercised_by_report_inspection",
-            "kickoff_not_certified_by_csv_profile", "model_metrics_preserve_original_cohorts_no_ranking" };
+            input.Profile == ApiFootballFixtureAdapter.Profile ? "provider_json_not_independent_coverage_evidence" : "kickoff_not_certified_by_csv_profile", "model_metrics_preserve_original_cohorts_no_ranking" };
         if (input.EvidenceKind != ValidationEvidenceKind.OperatorDeclaredReal) limitations.Add("real_data_validation_unavailable");
         if (input.EvidenceKind == ValidationEvidenceKind.Synthetic) limitations.Add("synthetic_software_test_only");
         if (models.Count == 0) limitations.Add("prediction_and_evaluation_not_executed");
@@ -95,7 +96,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         return new(1, CanonicalDatasetJson.Fingerprint(input), input.SourceId, input.RawId, input.ExpectedRawHash, input.Profile, input.Scope,
             input.EvidenceKind, FootballValidationRules.Readiness(parsed.ParsedCount, observations.Length, eligible, issues.Values.Sum(), models.Count,
                 models.Sum(m => m.Targets.Sum(t => t.Eligible))), now, raw.RetrievedAtUtc, raw.RecordedAtUtc, parsed.ParsedCount,
-            observations.Length, eligible, missing, parsed.Records.Count, issues.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new ValidationIssue(p.Key, p.Value)).ToArray(),
+            observations.Length, eligible, missing, input.Profile == ApiFootballFixtureAdapter.Profile ? parsed.Issues.Count : parsed.Records.Count, issues.OrderBy(p => p.Key, StringComparer.Ordinal).Select(p => new ValidationIssue(p.Key, p.Value)).ToArray(),
             models, limitations, results.Select(r => new ValidationObservation(r.Id, r.EventId, r.EventDate, r.PublishedAtUtc, r.RetrievedAtUtc, r.AvailableAtUtc, r.RecordedAtUtc)).ToArray(), authorizations);
     }
 

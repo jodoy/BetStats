@@ -20,10 +20,21 @@ public sealed record PostmatchInput(Guid PredictionExecutionId, Guid BacktestId,
 
 public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, FootballImportOperations imports,
     IResultDatasetOperations datasets, IFootballResultDatasets snapshots, IHistoricalBacktests backtests, IFootballIngestionPersistence ingestion, FootballValidation validation,
-    FootballAcquisition acquisition, FootballProspectiveReports prospective)
+    FootballAcquisition acquisition, FootballProspectiveReports prospective, ProviderPublication publications)
 {
     internal async Task AuthorizePublicationAsync(PipelineClaim claim, byte[] artifact, CancellationToken token)
     {
+        if (claim.Definition.Kind == PipelineKind.ProviderPublication)
+        {
+            using var publicationDocument = JsonDocument.Parse(artifact);
+            var id = publicationDocument.RootElement.GetProperty("Result").GetProperty("ReceiptId").GetGuid();
+            var input = Input<ProviderPublicationInput>(claim);
+            await QualityPersistence.Lock(db, input.SourceId, token);
+            var receipt = await publications.VerifyAsync(id, false, token);
+            if (CanonicalDatasetJson.Fingerprint(receipt.Report.Input) != CanonicalDatasetJson.Fingerprint(input))
+                throw new InvalidDataException("Publication acknowledgment input mismatch.");
+            return;
+        }
         if (claim.Definition.Kind == PipelineKind.FootballAcquisition)
         {
             using var output = JsonDocument.Parse(artifact);
@@ -68,6 +79,12 @@ public sealed class PipelineWork(BetStatsDbContext db, PostgreSqlPipeline jobs, 
         var artifactCutoff = claim.StartedUtc;
         switch (claim.Definition.Kind)
         {
+            case PipelineKind.ProviderPublication:
+                var publication = await publications.PublishAsync(claim, Input<ProviderPublicationInput>(claim), approval, token);
+                if (publication.Report.State != ProviderPublicationState.Published)
+                    return (new(PipelineState.Blocked, publication.Report.State == ProviderPublicationState.ReviewRequired ? "provider_identity_review_required" : "provider_publication_blocked"), null);
+                result = new { Version = 1, Kind = "provider-publication-v1", ReceiptId = publication.Report.ReceiptId, publication.Hash };
+                break;
             case PipelineKind.FootballAcquisition:
                 result = new { Version = 1, Kind = "football-acquisition-v1", Report = await acquisition.ExecuteAsync(claim.ExecutionId, Input<LocalAcquisitionInput>(claim), approval, claim.Attempt > 1, token) };
                 break;

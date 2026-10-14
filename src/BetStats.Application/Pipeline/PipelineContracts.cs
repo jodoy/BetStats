@@ -3,7 +3,7 @@ using BetStats.Application.Datasets;
 namespace BetStats.Application.Pipeline;
 
 public enum PipelineState { Disabled, Pending, Running, Completed, Failed, Cancelled, Blocked }
-public enum PipelineKind { LocalSynchronization, PrematchPrediction, PostmatchEvaluation, FootballValidation, FootballAcquisition, ProspectiveCohort }
+public enum PipelineKind { LocalSynchronization, PrematchPrediction, PostmatchEvaluation, FootballValidation, FootballAcquisition, ProspectiveCohort, ProviderPublication }
 public sealed record PipelineSchedule(DateTime FirstDueUtc, int? IntervalSeconds = null, string TimeZone = "UTC", string DaylightSavingPolicy = "NotApplicable")
 {
     public void Validate()

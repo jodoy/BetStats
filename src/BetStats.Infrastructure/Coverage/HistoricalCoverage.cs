@@ -300,19 +300,31 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             {
                 try
                 {
-                    var bound = CanonicalDatasetJson.Deserialize<EventTimeSourceClaim>((await Read(raw, token)).ToArray());
-                    if (bound.Version != 1 || bound.Value != e.Value || bound.OriginalRawId != dateObservation.RawPayloadId ||
-                        bound.ProviderEventReference != identity.ExternalId || bound.Context is null)
-                        resolution = new(null, e.Value.Precision, "unverified_operator_time_assertion");
+                    if (raw.ExternalReference == "fixture:" + ApiFootballFixtureAdapter.Profile)
+                    {
+                        var original = await FootballContext.ReadAsync(db, raw, new("unavailable", "unavailable"), token, asOf);
+                        var fixture = ApiFootballJsonParser.ReadFixtures(await Read(raw, token), original)
+                            .SingleOrDefault(f => ApiFootballPublicationMapping.Reference("fixture", f.Id) == identity.ExternalId);
+                        if (fixture?.KickoffUtc is not { } kickoff || dateObservation.RawPayloadId != raw.Id ||
+                            e.Value != new EventTimeValue(DateOnly.FromDateTime(kickoff), TimeOnly.FromDateTime(kickoff), "UTC", 0, kickoff, EventTimePrecision.Second))
+                            resolution = new(null, e.Value.Precision, "provider_time_raw_mismatch");
+                    }
                     else
                     {
-                        var originalRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == bound.OriginalRawId && r.DataSourceId == e.SourceId, token);
-                        var original = await FootballContext.ReadAsync(db, originalRaw, new(bound.Context.CompetitionReference, bound.Context.SeasonReference), token, asOf);
-                        if (original != new FootballImportScope(bound.Context.CompetitionReference, bound.Context.SeasonReference))
-                            resolution = new(null, e.Value.Precision, "event_time_original_context_mismatch");
+                        var bound = CanonicalDatasetJson.Deserialize<EventTimeSourceClaim>((await Read(raw, token)).ToArray());
+                        if (bound.Version != 1 || bound.Value != e.Value || bound.OriginalRawId != dateObservation.RawPayloadId ||
+                            bound.ProviderEventReference != identity.ExternalId || bound.Context is null)
+                            resolution = new(null, e.Value.Precision, "unverified_operator_time_assertion");
+                        else
+                        {
+                            var originalRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == bound.OriginalRawId && r.DataSourceId == e.SourceId, token);
+                            var original = await FootballContext.ReadAsync(db, originalRaw, new(bound.Context.CompetitionReference, bound.Context.SeasonReference), token, asOf);
+                            if (original != new FootballImportScope(bound.Context.CompetitionReference, bound.Context.SeasonReference))
+                                resolution = new(null, e.Value.Precision, "event_time_original_context_mismatch");
+                        }
                     }
                 }
-                catch (Exception error) when (error is System.Text.Json.JsonException or InvalidDataException or IOException)
+                catch (Exception error) when (error is System.Text.Json.JsonException or InvalidDataException or IOException or FormatException)
                 { resolution = new(null, e.Value.Precision, "unverified_operator_time_assertion"); }
             }
             if (e.Value.LocalDate is { } localDate && dateObservation.DateValue is { } observedDate && localDate != observedDate)

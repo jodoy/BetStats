@@ -64,16 +64,33 @@ public sealed class FootballFixtureParser : IVersionedFootballMetadataParser
 {
     public FootballParseResult ParseProfile(ReadOnlyMemory<byte> bytes, FootballImportScope scope, string profile, CancellationToken cancellationToken = default) => profile switch
     {
+        ApiFootballFixtureAdapter.Profile => new ApiFootballJsonParser().Parse(bytes, scope, cancellationToken),
         HistoricalFootballCsvParser.Version => new HistoricalFootballCsvParser().Parse(bytes, scope, cancellationToken),
         FootballResultsCsvParser.Version => new FootballResultsCsvParser().Parse(bytes, scope, cancellationToken),
         FootballDataCsvParser.Version => new FootballDataCsvParser().Parse(bytes, scope, cancellationToken),
         _ => new(0, [], [new(0, "unsupported_parser_version")], CompletePayload: false, ParserVersion: profile)
     };
-    public static string Profile(ReadOnlyMemory<byte> bytes) => Encoding.UTF8.GetString(bytes.Span[..Math.Min(bytes.Length, 1024)]).Split('\n')[0].Split(',')
-        .Contains("ResultBasis", StringComparer.Ordinal) ? FootballResultsCsvParser.Version : FootballDataCsvParser.Version;
+    public static string Profile(ReadOnlyMemory<byte> bytes)
+    {
+        // Other project-owned JSON (for example bound kickoff claims) retains its
+        // legacy capture profile. JSON syntax alone never identifies a provider.
+        if (bytes.Length is > 0 and <= 1048576 && Encoding.UTF8.GetString(bytes.Span[..Math.Min(bytes.Length, 1024)]).TrimStart().StartsWith('{'))
+        {
+            try
+            {
+                using var json = System.Text.Json.JsonDocument.Parse(bytes, new() { MaxDepth = 32 });
+                if (json.RootElement.TryGetProperty("get", out var endpoint) && endpoint.ValueKind == System.Text.Json.JsonValueKind.String && endpoint.GetString() == "fixtures")
+                    return ApiFootballFixtureAdapter.Profile;
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
+        return Encoding.UTF8.GetString(bytes.Span[..Math.Min(bytes.Length, 1024)]).Split('\n')[0].Split(',')
+            .Contains("ResultBasis", StringComparer.Ordinal) ? FootballResultsCsvParser.Version : FootballDataCsvParser.Version;
+    }
     public FootballParseResult Parse(ReadOnlyMemory<byte> bytes, FootballImportScope scope, CancellationToken cancellationToken = default)
     {
         // Dispatch only an explicit format header, never reinterpret an old metadata fixture.
+        if (Profile(bytes) == ApiFootballFixtureAdapter.Profile) return new ApiFootballJsonParser().Parse(bytes, scope, cancellationToken);
         return Profile(bytes) == FootballResultsCsvParser.Version
             ? new FootballResultsCsvParser().Parse(bytes, scope, cancellationToken)
             : new FootballDataCsvParser().Parse(bytes, scope, cancellationToken);

@@ -1,0 +1,29 @@
+@using BetStats.Application.Providers
+@{ var r = Artifact.Report; }
+<article class="card" lang="@Language">
+<h2>@T("Provider publication", "Publikacja dostawcy"): @(r.State == ProviderPublicationState.Published ? T("Published", "Opublikowano") : r.State == ProviderPublicationState.ReviewRequired ? T("Identity review required", "Wymagana weryfikacja tożsamości") : T("Blocked", "Zablokowane"))</h2>
+<p>@T("Receipt verification", "Weryfikacja receiptu"): @(Artifact.Verified ? T("Verified committed evidence", "Zweryfikowane zatwierdzone dowody") : T("Unavailable", "Niedostępne"))</p>
+<p>API-Football · @r.Input.Profile · @r.Input.Scope.CompetitionReference / @r.Input.Scope.SeasonReference</p>
+<p class="hash">RAW @r.Input.RawId · SHA256 @r.Input.RawHash<br />@T("Receipt", "Receipt") @r.ReceiptId · SHA256 @Artifact.Hash</p>
+<p>@T("Policy / version / mapping", "Polityka / wersja / mapowanie"): @r.Input.PolicyId / @r.Input.PolicyVersion / @r.MappingVersion</p>
+<p>@T("Original retrieval / original recording / publication UTC", "Oryginalne pobranie / oryginalny zapis / publikacja UTC"): @r.RetrievedUtc.ToString("u") / @r.RawRecordedUtc.ToString("u") / @Artifact.RecordedUtc.ToString("u")</p>
+<p>@T("Job / execution / publication attempt", "Zadanie / wykonanie / próba publikacji"): @r.JobId / @r.ExecutionId / @r.Attempt</p>
+<p>@T("Origin classification", "Klasyfikacja pochodzenia"): @(r.Input.EvidenceKind == BetStats.Application.Pipeline.ValidationEvidenceKind.Synthetic ? T("Synthetic evidence", "Dowody syntetyczne") : r.Input.EvidenceKind == BetStats.Application.Pipeline.ValidationEvidenceKind.OperatorDeclaredReal ? T("Operator-declared real evidence", "Dowody rzeczywiste według operatora") : T("Unknown provenance", "Nieznane pochodzenie"))</p>
+<p>@T("Prospective eligibility requires separate coverage, cutoff, warm-up and frozen prediction checks.", "Kwalifikacja prospektywna wymaga oddzielnej kontroli pokrycia, cutoff, rozgrzewki i zamrożonych predykcji.")</p>
+@foreach (var fixture in r.Fixtures)
+{
+    <details><summary>@fixture.Reference · @fixture.EventId · @fixture.ProviderStatus</summary>
+    <p>@T("Schedule / status / result observation", "Obserwacja terminarza / statusu / wyniku"): @fixture.ScheduleObservationId / @fixture.StatusObservationId / @fixture.ResultObservationId</p>
+    <p>@T("Kickoff / source publication UTC", "Kickoff / publikacja źródła UTC"): @fixture.KickoffUtc?.ToString("u") / @(fixture.SourcePublicationUtc?.ToString("u") ?? T("Unavailable", "Niedostępne"))</p>
+    <p>@T("Corrects schedule / status / result", "Koryguje terminarz / status / wynik"): @fixture.ScheduleCorrectsId / @fixture.StatusCorrectsId / @fixture.ResultCorrectsId</p>
+    <p>@T("Correction history is append-only; original observations remain available as of their recording time.", "Historia korekt jest dopisywana; oryginalne obserwacje pozostają dostępne zgodnie z czasem zapisu.")</p>
+    @foreach (var b in fixture.Bindings) { <p>@b.Reference · @b.CanonicalId · @T("decision version", "wersja decyzji") @b.Version</p> }
+    <ul>@foreach (var reason in fixture.Exclusions) { <li><code>@reason</code></li> }</ul>
+    </details>
+}
+</article>
+@code {
+    [Parameter, EditorRequired] public ProviderPublicationArtifact Artifact { get; set; } = default!;
+    [Parameter] public string Language { get; set; } = "pl-PL";
+    private string T(string en, string pl) => Language == "en-GB" ? en : pl;
+}

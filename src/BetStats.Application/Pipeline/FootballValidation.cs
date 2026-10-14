@@ -12,7 +12,7 @@ public sealed record FootballValidationInput(int Version, Guid SourceId, Guid Ra
     public void Validate()
     {
         if (Version != 1 || SourceId == Guid.Empty || RawId == Guid.Empty || !BacktestRules.Hash(ExpectedRawHash) ||
-            Profile is not ("football-history-v1" or "results-v1" or "metadata-v1") ||
+            Profile is not ("football-history-v1" or "results-v1" or "metadata-v1" or "api-football-fixtures-v1") ||
             Scope is null || !Scope.IsValid || !Enum.IsDefined(EvidenceKind) || Publications is null || Publications.Count > 3 ||
             Publications.Any(p => p.PredictionExecutionId == Guid.Empty || p.EvaluationExecutionId == Guid.Empty) ||
             Publications.Select(p => p.PredictionExecutionId).Distinct().Count() != Publications.Count)
