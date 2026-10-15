@@ -1,5 +1,6 @@
 namespace BetStats.ArchitectureTests;
 
+[Trait("Category", "Security")]
 public sealed class ApiFootballBoundaryTests
 {
     [Fact] public void Unapproved_provider_boundary_has_no_runtime_registration_or_execution_route()

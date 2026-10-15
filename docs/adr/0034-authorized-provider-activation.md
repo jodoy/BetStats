@@ -21,8 +21,13 @@ implicitly. An uncertain request fails closed until explicit operator reconcilia
 
 Use a dedicated shared HttpMessageInvoker/SocketsHttpHandler equivalent to a pooled
 client: fixed HTTPS host, no redirect/proxy/cookie, no automatic retries, bounded
-timeout/body, no HttpClient logging pipeline exposing headers. Obtain the key only
-from the operator environment; no secret enters persisted plans or reports.
+timeout/body, no HttpClient logging pipeline exposing headers. Obtain the key from
+the operator environment or a Development-only file at
+`%LOCALAPPDATA%/BetStats/secrets/api-football.json`. Environment takes precedence;
+invalid files deny credentials without logging content. Read the bounded file per
+request for rotation, never in Production or from a repository/link. The file can
+supply only the key, never enablement or approval. No secret enters persisted plans
+or reports. This local plaintext file relies on the operator's filesystem permissions.
 
 RAW capture retains the existing transaction and trusted recording clock. Persist
 the ingestion run UUID with the reservation before HTTP. Recovery finds original

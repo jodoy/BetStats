@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class HistoricalIntegrityWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private sealed class Scenario : IAsyncDisposable

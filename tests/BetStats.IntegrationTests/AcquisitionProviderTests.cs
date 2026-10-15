@@ -8,6 +8,7 @@ using BetStats.Infrastructure.Ingestion;
 namespace BetStats.IntegrationTests;
 
 // Controlled fake transport only. No provider URLs or HTTP client are used.
+[Trait("Category", "Security")]
 public sealed class AcquisitionProviderTests
 {
     private sealed class Policy : ISourcePolicyEvaluator

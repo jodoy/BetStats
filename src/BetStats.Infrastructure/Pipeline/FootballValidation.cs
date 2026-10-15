@@ -21,7 +21,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
     ISourceOperationalStatus sources, IAnalyticalQualityGate gate, IHistoricalBacktests backtests,
     IFootballResultDatasets datasets) : IFootballValidationReports
 {
-    private async Task<ReadOnlyMemory<byte>> Raw(FootballValidationInput input, bool display, CancellationToken token)
+    private async Task<ReadOnlyMemory<byte>> Raw(FootballValidationInput input, InspectionAudience display, CancellationToken token)
     {
         input.Validate();
         if (await sources.ReadAsync(input.SourceId, token) != SourceOperationalStatus.Enabled)
@@ -32,9 +32,9 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             throw new InvalidDataException("RAW profile, hash or scope mismatch.");
         var now = await QualityPersistence.Now(db, token);
         foreach (var purpose in new[] { DataPurpose.DataRetrieval, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }
-            .Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
+            .Concat(display ? [display.Purpose] : Array.Empty<DataPurpose>()))
         {
-            var policy = await policies.EvaluateAsync(input.SourceId, purpose, now, new(PublicDisplay: display, IntendedRetentionDays: 1), token);
+            var policy = await policies.EvaluateAsync(input.SourceId, purpose, now, display.Context, token);
             if (!policy.Allowed || policy.Restrictions.Any(r => r.MaximumRetentionDays is { } days && now - raw.RetrievedAtUtc > TimeSpan.FromDays(days)))
                 throw new UnauthorizedAccessException("Current validation rights denied.");
         }
@@ -170,7 +170,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             m.Predictions.Count, m.Predictions.Count(p => p.Target is EvaluationTarget.FirstHalfGoalOccurrence or EvaluationTarget.FirstHalfTotalGoals ? p.Model?.HalfWarmed != true : p.Model?.Warmed != true), targets);
     }
 
-    private async Task CheckRaw(FootballResultManifest manifest, bool display, CancellationToken token)
+    private async Task CheckRaw(FootballResultManifest manifest, InspectionAudience display, CancellationToken token)
     {
         var metadata = manifest.MetadataManifest;
         var ids = metadata.Rows.SelectMany(r => r.History.Prepend(r.Target))
@@ -187,9 +187,9 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
             if (await sources.ReadAsync(raw.DataSourceId, token) != SourceOperationalStatus.Enabled) throw new UnauthorizedAccessException("Linked source unavailable.");
             var now = await QualityPersistence.Now(db, token);
             foreach (var purpose in new[] { DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }
-                .Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
+                .Concat(display ? [display.Purpose] : Array.Empty<DataPurpose>()))
             {
-                var policy = await policies.EvaluateAsync(raw.DataSourceId, purpose, now, new(PublicDisplay: display, IntendedRetentionDays: 1), token);
+                var policy = await policies.EvaluateAsync(raw.DataSourceId, purpose, now, display.Context, token);
                 if (!policy.Allowed || policy.Restrictions.Any(r => r.MaximumRetentionDays is { } days && now - raw.RetrievedAtUtc > TimeSpan.FromDays(days)))
                     throw new UnauthorizedAccessException("Linked RAW rights denied.");
             }
@@ -226,7 +226,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
         }
     }
 
-    public async Task<FootballValidationArtifact> ReadAsync(Guid executionId, bool display, CancellationToken token = default)
+    public async Task<FootballValidationArtifact> ReadAsync(Guid executionId, InspectionAudience display, CancellationToken token = default)
     {
         if (executionId == Guid.Empty) throw new ArgumentException("Execution UUID required.");
         var (execution, result, _) = await Output(executionId, "football-validation-v1", token);
@@ -254,7 +254,7 @@ public sealed class FootballValidation(BetStatsDbContext db, IRawPayloadStore st
                 }
                 foreach (var source in authorizations.Select(a => a.SourceId).Distinct().Order())
                 {
-                    var policy = await policies.EvaluateAsync(source, DataPurpose.PublicDisplay, await QualityPersistence.Now(db, token), new(PublicDisplay: true, IntendedRetentionDays: 1), token);
+                    var policy = await policies.EvaluateAsync(source, display.Purpose, await QualityPersistence.Now(db, token), display.Context, token);
                     if (!policy.Allowed) throw new UnauthorizedAccessException("Linked evidence display denied.");
                 }
             }

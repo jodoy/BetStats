@@ -25,14 +25,14 @@ public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOper
     IRawPayloadStore store, ISourcePolicyEvaluator policies, ISourceOperationalStatus sources, IHistoricalCoverage coverage,
     IAnalyticalQualityGate gate, IFootballResults results, ProviderPublication publications)
 {
-    private async Task Authorize(AcquisitionCapability capability, bool display, bool pin, CancellationToken token)
+    private async Task Authorize(AcquisitionCapability capability, InspectionAudience display, bool pin, CancellationToken token)
     {
         capability.Validate();
         if (await sources.ReadAsync(capability.SourceId, token) != SourceOperationalStatus.Enabled) throw new UnauthorizedAccessException("Acquisition source unavailable.");
         var now = await QualityPersistence.Now(db, token);
-        foreach (var purpose in FootballProviderContract.ImportPurposes.Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
+        foreach (var purpose in FootballProviderContract.ImportPurposes.Concat(display ? [display.Purpose] : Array.Empty<DataPurpose>()))
         {
-            var decision = await policies.EvaluateAsync(capability.SourceId, purpose, now, new(PublicDisplay: display, IntendedRetentionDays: 1), token);
+            var decision = await policies.EvaluateAsync(capability.SourceId, purpose, now, display.Context, token);
             if (!decision.Allowed || pin && (decision.PolicyId != capability.PolicyId || decision.Version != capability.PolicyVersion))
                 throw new UnauthorizedAccessException("Acquisition current policy denied or changed.");
         }
@@ -61,22 +61,22 @@ public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOper
         var plan = new AcquisitionPlan(1, capability, scope, category, CanonicalDatasetJson.Hash(bytes), bytes.Length, evidenceKind, dateObservation, corrects);
         plan.Validate(); return plan;
     }
-    private async Task<AcquisitionRaw> Raw(Guid id, AcquisitionCapability capability, bool display, bool pin, CancellationToken token)
+    private async Task<AcquisitionRaw> Raw(Guid id, AcquisitionCapability capability, InspectionAudience display, bool pin, CancellationToken token)
     {
         await Authorize(capability, display, pin, token);
         var raw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == id, token);
         if (raw.DataSourceId != capability.SourceId || raw.ByteLength is not { } length) throw new InvalidDataException("Source-bound RAW manifest required.");
         var now = await QualityPersistence.Now(db, token);
-        foreach (var purpose in new[] { DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }.Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
+        foreach (var purpose in new[] { DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention, DataPurpose.InternalAnalytics }.Concat(display ? [display.Purpose] : Array.Empty<DataPurpose>()))
         {
-            var p = await policies.EvaluateAsync(raw.DataSourceId, purpose, now, new(PublicDisplay: display, IntendedRetentionDays: 1), token);
+            var p = await policies.EvaluateAsync(raw.DataSourceId, purpose, now, display.Context, token);
             if (!p.Allowed || p.Restrictions.Any(r => r.MaximumRetentionDays is { } days && now - raw.RetrievedAtUtc > TimeSpan.FromDays(days)))
                 throw new UnauthorizedAccessException("Acquisition RAW retention denied.");
         }
         _ = await store.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token);
         return new(raw.Id, raw.ContentHashSha256, length, raw.RetrievedAtUtc, raw.RecordedAtUtc);
     }
-    internal Task<AcquisitionRaw> EvidenceAsync(Guid id, AcquisitionCapability capability, bool display, CancellationToken token) => Raw(id, capability, display, false, token);
+    internal Task<AcquisitionRaw> EvidenceAsync(Guid id, AcquisitionCapability capability, InspectionAudience display, CancellationToken token) => Raw(id, capability, display, false, token);
     public async Task<AcquisitionReport> ExecuteAsync(Guid execution, LocalAcquisitionInput input, PipelineApproval approval, bool recover, CancellationToken token)
     {
         input.Plan.Validate(); approval.Validate();
@@ -202,7 +202,7 @@ public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOper
         foreach (var raw in report.EvidenceRaws)
             if (await Raw(raw.Id, report.Capability, false, true, token) != raw) throw new InvalidDataException("Acquisition evidence changed.");
     }
-    public async Task<AcquisitionJobStatus> StatusAsync(Guid id, bool display, CancellationToken token)
+    public async Task<AcquisitionJobStatus> StatusAsync(Guid id, InspectionAudience display, CancellationToken token)
     {
         var job = await db.Set<PipelineJob>().AsNoTracking().SingleAsync(j => j.Id == id, token);
         var version = await db.Set<PipelineJobVersion>().AsNoTracking().SingleAsync(v => v.JobId == id && v.Version == job.Version, token);
@@ -220,7 +220,7 @@ public sealed class FootballAcquisition(BetStatsDbContext db, FootballImportOper
             .Select(e => new AcquisitionExecutionStatus(e.Id, e.State, e.Attempt, e.PlannedUtc, e.StartedUtc, e.CompletedUtc)).ToArrayAsync(token);
         return new(id, job.State, job.Enabled, true, executions);
     }
-    public async Task<AcquisitionArtifact> ReadAsync(Guid execution, bool display, CancellationToken token)
+    public async Task<AcquisitionArtifact> ReadAsync(Guid execution, InspectionAudience display, CancellationToken token)
     {
         var providerVersion = await (from e in db.Set<PipelineExecution>() join v in db.Set<PipelineJobVersion>() on new { e.JobId, Version = e.DefinitionVersion } equals new { v.JobId, v.Version }
             where e.Id == execution select v).AsNoTracking().SingleAsync(token);

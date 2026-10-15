@@ -4,6 +4,7 @@ using BetStats.Domain.Governance;
 
 namespace BetStats.UnitTests;
 
+[Trait("Category", "Security")]
 public sealed class ProviderRemediationTests
 {
     private static readonly Guid Source = Guid.NewGuid();

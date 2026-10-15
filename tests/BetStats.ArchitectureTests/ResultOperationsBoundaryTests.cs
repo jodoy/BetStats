@@ -2,6 +2,7 @@ using System.Xml.Linq;
 
 namespace BetStats.ArchitectureTests;
 
+[Trait("Category", "Security")]
 public sealed class ResultOperationsBoundaryTests
 {
     [Fact]

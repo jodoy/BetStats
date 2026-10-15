@@ -1,3 +1,4 @@
+using BetStats.Application.Governance;
 using BetStats.Application.Dashboard;
 
 namespace BetStats.Api;
@@ -16,22 +17,25 @@ public static class DashboardEndpoints
             context.HttpContext.Response.Headers.CacheControl = "no-store";
             if (!DashboardAccess.Allowed(app.Environment.IsDevelopment(), context.HttpContext.Connection.RemoteIpAddress,
                 request.Host.Host, request.Headers.Origin.ToString())) return Results.StatusCode(403);
+            var inspection = context.HttpContext.RequestServices.GetRequiredService<OperatorInspectionContext>();
+            inspection.Begin();
             try { return await next(context); }
             catch (UnauthorizedAccessException) { return Results.Problem(statusCode: 403, title: "Current display permission denied"); }
             catch (Exception e) when (e is ArgumentException or FormatException) { return Results.Problem(statusCode: 400, title: "Invalid dashboard filter"); }
             catch (Exception e) when (e is InvalidDataException or KeyNotFoundException or InvalidOperationException or IOException)
             { return Results.Problem(statusCode: 409, title: "Stored evidence unavailable"); }
+            finally { inspection.End(); }
         });
         IDashboardQueries Queries(IDashboardQueries queries) => demo ? new DemoDashboardQueries() : queries;
         group.MapGet("/provider-activation/{sourceId:guid}", async (Guid sourceId, BetStats.Application.Providers.IProviderActivationReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(sourceId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(sourceId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Providers.ProviderActivationStatus>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/fixtures", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).FixturesAsync(filter, token));
         group.MapGet("/publication/{receiptId:guid}", async (Guid receiptId, BetStats.Application.Providers.IProviderPublicationReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.VerifyAsync(receiptId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.VerifyAsync(receiptId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Providers.ProviderPublicationArtifact>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/publication-status/{jobId:guid}", async (Guid jobId, BetStats.Application.Providers.IProviderPublicationReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(jobId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(jobId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Providers.ProviderPublicationStatus>(200).ProducesProblem(403).ProducesProblem(409);
         foreach (var kind in new[] { "competitions", "seasons", "teams" })
             group.MapGet("/" + kind, async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).ChoicesAsync(kind, filter, token));
@@ -40,17 +44,17 @@ public static class DashboardEndpoints
         group.MapGet("/predictions", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).BacktestsAsync(filter, token));
         group.MapGet("/quality", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).QualityAsync(filter, token));
         group.MapGet("/validation/{executionId:guid}", async (Guid executionId, BetStats.Application.Pipeline.IFootballValidationReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.ReadAsync(executionId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.ReadAsync(executionId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Pipeline.FootballValidationArtifact>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/provenance", async ([AsParameters] DashboardFilter filter, IDashboardQueries queries, CancellationToken token) => await Queries(queries).FixturesAsync(filter, token));
         group.MapGet("/acquisition/{executionId:guid}", async (Guid executionId, BetStats.Application.Providers.IFootballAcquisitionReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.AcquisitionAsync(executionId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.AcquisitionAsync(executionId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Providers.AcquisitionArtifact>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/prospective/{executionId:guid}", async (Guid executionId, BetStats.Application.Providers.IFootballAcquisitionReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.CohortAsync(executionId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.CohortAsync(executionId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Providers.ProspectiveCohortArtifact>(200).ProducesProblem(403).ProducesProblem(409);
         group.MapGet("/acquisition-status/{jobId:guid}", async (Guid jobId, BetStats.Application.Providers.IFootballAcquisitionReports reports, CancellationToken token) =>
-            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(jobId, true, token)))
+            demo ? Results.NotFound() : Results.Ok(await reports.StatusAsync(jobId, InspectionAudience.PrivateOperatorInspection, token)))
             .Produces<BetStats.Application.Providers.AcquisitionJobStatus>(200).ProducesProblem(403).ProducesProblem(409);
     }
 }

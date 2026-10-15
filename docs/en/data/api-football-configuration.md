@@ -24,10 +24,11 @@ After explicitly reviewing the target Development connection and migration:
 dotnet ef database update --project src/BetStats.Infrastructure
 ```
 
-Only `BETSTATS_API_FOOTBALL_KEY` supplies the key. Only
-`BETSTATS_API_FOOTBALL_ENABLED=true` enables runtime transport. They are read from
-the environment, not tracked appsettings, command-line key arguments, grant files
-or dashboard requests. The host's actual environment also must be Development.
+`BETSTATS_API_FOOTBALL_KEY` supplies the key with precedence over the optional local
+file below. Only `BETSTATS_API_FOOTBALL_ENABLED=true` enables runtime transport;
+enablement remains environment-only. No key is read from tracked appsettings,
+command-line arguments, grant files or dashboard requests. The host's actual
+environment also must be Development.
 Key characters: ASCII letters/digits/hyphen/underscore, at most 256 characters.
 
 For an interactive local PowerShell session, enter the key privately:
@@ -43,6 +44,27 @@ $env:BETSTATS_API_FOOTBALL_ENABLED = 'true'
 Prefer an approved local secret manager injecting the environment. Do not place
 keys in chat, source code, shell arguments/history, issue bodies, screenshots or
 CI variables for automated tests. Setting these variables performs no request.
+
+### Optional local Development file
+
+Worker and API can read `%LOCALAPPDATA%\BetStats\secrets\api-football.json` when no
+nonempty environment key is present and the actual host environment is Development.
+The file is outside Git, contains plaintext, and must be restricted to the operator
+account. Do not copy it into the repository. Its exact format is:
+
+```json
+{"ApiKey":""}
+```
+
+Paste the actual key between the empty quotes locally and save. No additional
+properties are accepted. The reader rejects malformed/duplicate/oversize JSON,
+invalid keys, repository paths and links without logging file contents. Missing
+or invalid files provide no credential. File rotation is read on subsequent
+requests, without modifying historical evidence. Production ignores the file.
+Delete this file after temporary use to remove its stored key; removing only the
+environment variable does not remove this fallback. Database disable remains the
+immediate control across workers. Neither this file nor saving its key activates
+transport, grants permission or issues a request.
 
 ## Immutable activation grant
 

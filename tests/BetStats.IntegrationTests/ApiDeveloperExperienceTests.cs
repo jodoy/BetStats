@@ -45,6 +45,7 @@ public sealed class ApiDeveloperExperienceTests
         await using var production = new Host("Production"); using var prod = Client(production);
         Assert.Equal(HttpStatusCode.NotFound, (await prod.GetAsync(route)).StatusCode);
     }
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task OpenApi_has_metadata_read_schemas_and_no_administrative_mutations()
     {
@@ -55,7 +56,7 @@ public sealed class ApiDeveloperExperienceTests
         Assert.Equal("v1", root.GetProperty("info").GetProperty("version").GetString());
         Assert.Equal("Multi-sport analytics and historical evidence API.", root.GetProperty("info").GetProperty("description").GetString());
         var paths = root.GetProperty("paths");
-        Assert.Equal(23, paths.EnumerateObject().Count());
+        Assert.Equal(24, paths.EnumerateObject().Count());
         Assert.True(paths.TryGetProperty("/api/v1/dashboard/publication/{receiptId}", out _));
         Assert.True(paths.TryGetProperty("/api/v1/dashboard/publication-status/{jobId}", out _));
         Assert.True(paths.TryGetProperty("/api/v1/dashboard/acquisition/{executionId}", out _));

@@ -1,4 +1,5 @@
 namespace BetStats.ArchitectureTests;
+[Trait("Category", "Security")]
 public sealed class CoverageBoundaryTests
 {
     [Theory] [InlineData("BetStats.Application", "Coverage")] [InlineData("BetStats.Application", "Evaluation")] [InlineData("BetStats.Domain", "Coverage")]

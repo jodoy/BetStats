@@ -1,3 +1,4 @@
+using BetStats.Application.Governance;
 using BetStats.Application.Ingestion;
 using BetStats.Application.Pipeline;
 
@@ -38,5 +39,5 @@ public sealed record ProviderActivationStatus(Guid SourceId, Guid? GrantId, bool
     ProspectiveCohortArtifact? Cohort);
 public interface IProviderActivationReports
 {
-    Task<ProviderActivationStatus> StatusAsync(Guid sourceId, bool display, CancellationToken token = default);
+    Task<ProviderActivationStatus> StatusAsync(Guid sourceId, InspectionAudience display, CancellationToken token = default);
 }

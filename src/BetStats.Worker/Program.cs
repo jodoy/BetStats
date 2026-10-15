@@ -10,10 +10,18 @@ var demo = args.Contains("--synthetic-demo", StringComparer.Ordinal);
 var approve = args.Contains("--approve-synthetic", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a is not ("--synthetic-demo" or "--approve-synthetic")).ToArray());
 builder.Services.AddPersistence(builder.Configuration);
-builder.Services.AddSingleton(new BetStats.Infrastructure.Pipeline.ProviderTransportOptions(builder.Environment.IsDevelopment(),
-    Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_ENABLED") == "true", () => Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_KEY")));
+builder.Services.AddSingleton(BetStats.Infrastructure.Pipeline.ProviderCredentialFile.CreateOptions(builder.Environment.IsDevelopment()));
 using var host = builder.Build();
-if (builder.Configuration["Pipeline:Action"] is not null)
+if (builder.Configuration["Operations:Action"] is not null)
+{
+    if (demo || new[] { "Pipeline:Action", "FootballHistory:Action", "Model:Action", "Backtest:Action", "Results:Action", "Coverage:Action", "Quality:Action", "Dataset:Action" }.Any(k => builder.Configuration[k] is not null)) throw new ArgumentException("Choose one explicit Worker action.");
+    using var scope = host.Services.CreateScope();
+    using var cancel = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cancel.Cancel(); };
+    try { Environment.ExitCode = await DevelopmentOperationsCommand.RunAsync(scope.ServiceProvider, builder.Configuration, builder.Environment.IsDevelopment(), cancel.Token); }
+    catch { Console.WriteLine("{\"Operation\":\"Failed\",\"Category\":\"development_operation_rejected\"}"); Environment.ExitCode = 1; }
+}
+else if (builder.Configuration["Pipeline:Action"] is not null)
 {
     if (demo || new[] { "FootballHistory:Action", "Model:Action", "Backtest:Action", "Results:Action", "Coverage:Action", "Quality:Action", "Dataset:Action" }.Any(key => builder.Configuration[key] is not null))
         throw new ArgumentException("Choose one explicit Worker action.");

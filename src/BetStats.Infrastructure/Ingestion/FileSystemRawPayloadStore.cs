@@ -11,9 +11,16 @@ public sealed class FileSystemRawPayloadStore : IRawPayloadStore
         if (!Path.IsPathFullyQualified(rootPath)) throw new ArgumentException("RAW storage requires an absolute path.");
         root = Path.GetFullPath(rootPath);
         for (var directory = new DirectoryInfo(root); directory is not null; directory = directory.Parent)
-            if (File.Exists(Path.Combine(directory.FullName, "BetStats.slnx")) || Directory.Exists(Path.Combine(directory.FullName, ".git")))
+            if (File.Exists(Path.Combine(directory.FullName, "BetStats.slnx")) || Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git")))
                 throw new ArgumentException("RAW storage must be outside a repository.");
         CheckDirectories(); Directory.CreateDirectory(root); CheckDirectories();
+    }
+    public bool IsReadable()
+    {
+        CheckDirectories();
+        if (!Directory.Exists(root)) return false;
+        using var entries = Directory.EnumerateFileSystemEntries(root).GetEnumerator();
+        _ = entries.MoveNext(); return true;
     }
     public async Task<StoredPayload> StageAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken = default)
     {
@@ -21,6 +28,7 @@ public sealed class FileSystemRawPayloadStore : IRawPayloadStore
         var payload = new StoredPayload(Guid.NewGuid().ToString("N"), Convert.ToHexStringLower(SHA256.HashData(bytes.Span)), bytes.Length);
         await using var stream = new FileStream(FilePath(payload.StorageKey, ".pending"), FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous);
         await stream.WriteAsync(bytes, cancellationToken); await stream.FlushAsync(cancellationToken); stream.Flush(flushToDisk: true);
+        BetStats.Infrastructure.Pipeline.OperationalDiagnostics.Record("raw_staged", "succeeded");
         return payload;
     }
     public async Task FinalizeAsync(StoredPayload payload, CancellationToken cancellationToken = default)
@@ -29,6 +37,7 @@ public sealed class FileSystemRawPayloadStore : IRawPayloadStore
         var staged = FilePath(payload.StorageKey, ".pending"); var final = FilePath(payload.StorageKey, ".raw");
         if (File.Exists(final)) return;
         File.Move(staged, final, overwrite: false);
+        BetStats.Infrastructure.Pipeline.OperationalDiagnostics.Record("raw_finalized", "succeeded");
     }
     public async Task<ReadOnlyMemory<byte>> ReadAsync(StoredPayload payload, CancellationToken cancellationToken = default)
     {
@@ -39,6 +48,7 @@ public sealed class FileSystemRawPayloadStore : IRawPayloadStore
         if (stream.Length != payload.Length) throw new InvalidDataException("Payload integrity failure.");
         var bytes = new byte[checked((int)payload.Length)]; await stream.ReadExactlyAsync(bytes, cancellationToken);
         if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(bytes), Convert.FromHexString(payload.Hash))) throw new InvalidDataException("Payload integrity failure.");
+        BetStats.Infrastructure.Pipeline.OperationalDiagnostics.Record("raw_read", "verified");
         return bytes;
     }
     public IReadOnlyList<string> InventoryStaged()

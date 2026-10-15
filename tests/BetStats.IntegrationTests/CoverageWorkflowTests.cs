@@ -28,7 +28,7 @@ namespace BetStats.IntegrationTests;
 public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private const string Contract = "project-owned-fixture-inventory-v1";
-    private sealed class Scenario : IAsyncDisposable
+    internal sealed class Scenario : IAsyncDisposable
     {
         public BetStatsDbContext Db { get; }
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "betstats-coverage-" + Guid.NewGuid().ToString("N"));
@@ -67,7 +67,7 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         public Task<DatasetBuildResult> Build(DatasetDefinition definition) => Datasets.BuildAsync(new(definition, "operator:coverage", "Freeze fictional coverage"));
         public async ValueTask DisposeAsync() { await Db.DisposeAsync(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
-    private async Task<Scenario> Create(BetStatsDbContext? context = null)
+    internal async Task<Scenario> Create(BetStatsDbContext? context = null)
     {
         var s = new Scenario(context ?? fixture.CreateContext()); var today = DateOnly.FromDateTime(await s.Now());
         (s.Source, s.Definition) = await SyntheticDatasetDemo.PrepareAsync(s.Db, s.Ingestion, new(new(100, 1000, 1, TimeSpan.FromSeconds(30)), TimeProvider.System),
@@ -271,6 +271,7 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         await Assert.ThrowsAsync<InvalidOperationException>(() => CoverageOperatorCommand.RunAsync(services, config));
         config["Coverage:OperatorId"]=""; await Assert.ThrowsAsync<ArgumentException>(() => CoverageOperatorCommand.RunAsync(services, config, true));
     }
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task Upgrade_from_bs007_preserves_v1_artifact_hashes_and_recording()
     {
@@ -292,6 +293,7 @@ public sealed class CoverageWorkflowTests(PostgreSqlFixture fixture) : IClassFix
         Assert.Equal(first.ManifestHash, (await s.Build(s.Definition)).ManifestHash);
         var triggers = await db.Database.SqlQuery<int>($"SELECT count(*)::integer AS \"Value\" FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='coverage' AND NOT t.tgisinternal").SingleAsync(); Assert.Equal(10, triggers);
     }
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task Upgrade_from_bs008_preserves_v1_and_legacy_v2_bytes_hashes_and_recording()
     {

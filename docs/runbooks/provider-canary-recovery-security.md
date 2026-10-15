@@ -77,6 +77,15 @@ logging handlers; application diagnostics contain only fixed error categories. K
 are supplied per request and not serialized. The local OS/process administrator is
 part of the trust boundary; environment secrets are not protection against that actor.
 
+An optional Development-only key file is supported at
+`%LOCALAPPDATA%\BetStats\secrets\api-football.json`, outside Git, with exactly one
+`ApiKey` string property. Environment takes precedence. Restrict file access to the
+operator; it is plaintext. The reader ignores it in Production and denies malformed,
+oversize, linked or repository-contained files without secret-bearing errors.
+Deleting the environment variable does not remove this fallback: delete the local
+file too when retiring a temporary key. File content cannot enable the transport
+or grant authorization. See the configuration guide for the empty template.
+
 SQL operator access, existing SourcePolicy review and grant document review remain
 trusted operator boundaries. The app verifies evidence bindings and approvals; it
 does not claim independent legal/account certification. No public mutations, startup

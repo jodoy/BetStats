@@ -1,5 +1,6 @@
 namespace BetStats.ArchitectureTests;
 
+[Trait("Category", "Security")]
 public sealed class ProviderActivationBoundaryTests
 {
     private static string Read(string path)

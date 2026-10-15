@@ -2,6 +2,7 @@ using BetStats.Application.Providers;
 
 namespace BetStats.UnitTests;
 
+[Trait("Category", "Security")]
 public sealed class FootballProviderContractTests
 {
     [Fact]

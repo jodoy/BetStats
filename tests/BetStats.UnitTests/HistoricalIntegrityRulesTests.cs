@@ -7,6 +7,7 @@ using BetStats.Domain.Quality;
 
 namespace BetStats.UnitTests;
 
+[Trait("Category", "Security")]
 public sealed class HistoricalIntegrityRulesTests
 {
     private static readonly DateTime T = new(2026, 1, 10, 0, 0, 0, DateTimeKind.Utc);

@@ -3,6 +3,7 @@ using BetStats.Application.Providers;
 
 namespace BetStats.UnitTests;
 
+[Trait("Category", "Security")]
 public sealed class ProviderActivationGrantTests
 {
     private static ProviderActivationGrant Valid() => new(1, Guid.NewGuid(), Guid.NewGuid(), "api-football", Guid.NewGuid(), 1,

@@ -17,6 +17,7 @@ using Microsoft.Extensions.Logging;
 namespace BetStats.IntegrationTests;
 
 // All HTTP responses below are project-owned fictional payloads. Never a real call.
+[Trait("Category", "Security")]
 public sealed class ApiFootballBoundaryTests
 {
     private static readonly ApiFootballCanary Scope = new(1, 999999, 2026, new(2026, 10, 13), new(2026, 10, 19));

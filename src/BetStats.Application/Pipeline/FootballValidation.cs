@@ -1,3 +1,4 @@
+using BetStats.Application.Governance;
 using BetStats.Application.Evaluation;
 using BetStats.Application.Ingestion;
 
@@ -37,7 +38,7 @@ public sealed record FootballValidationReport(int Version, string InputHash, Gui
 public sealed record FootballValidationArtifact(Guid ExecutionId, string Hash, FootballValidationReport Report);
 public interface IFootballValidationReports
 {
-    Task<FootballValidationArtifact> ReadAsync(Guid executionId, bool display, CancellationToken token = default);
+    Task<FootballValidationArtifact> ReadAsync(Guid executionId, InspectionAudience display, CancellationToken token = default);
 }
 public static class FootballValidationRules
 {

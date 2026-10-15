@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class PipelineWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly PipelineApproval Approval = new("test:operator", "Explicit synthetic pipeline workflow", true);

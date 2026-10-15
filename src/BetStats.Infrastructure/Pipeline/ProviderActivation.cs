@@ -46,7 +46,7 @@ public sealed class ProviderActivation(BetStatsDbContext db, PostgreSqlPipeline 
         return g;
     }
     private async Task<ProviderActivationGrant> Grant(Guid id, CancellationToken t) => Decode(await db.Set<ProviderGrantRecord>().AsNoTracking().SingleAsync(x => x.Id == id, t));
-    private async Task Rights(ProviderActivationGrant g, bool display, CancellationToken t)
+    private async Task Rights(ProviderActivationGrant g, InspectionAudience display, CancellationToken t)
     {
         g.Validate(); var now = await Now(t);
         if (g.ExpiresUtc <= now || !await db.DataSources.AnyAsync(s => s.Id == g.SourceId && s.Code == g.SourceCode && s.IsEnabled, t))
@@ -58,9 +58,9 @@ public sealed class ProviderActivation(BetStatsDbContext db, PostgreSqlPipeline 
                 g.PermissionEvidence.StartsWith("synthetic:", StringComparison.OrdinalIgnoreCase) || g.EntitlementEvidence.StartsWith("synthetic:", StringComparison.OrdinalIgnoreCase))
                 throw new UnauthorizedAccessException("Synthetic approval cannot authorize real provider requests.");
         }
-        foreach (var p in FootballProviderContract.ImportPurposes.Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
+        foreach (var p in FootballProviderContract.ImportPurposes.Concat(display ? [display.Purpose] : Array.Empty<DataPurpose>()))
         {
-            var decision = await policies.EvaluateAsync(g.SourceId, p, now, new(PublicDisplay: display, IntendedRetentionDays: 1), t);
+            var decision = await policies.EvaluateAsync(g.SourceId, p, now, display.Context, t);
             if (!decision.Allowed || decision.PolicyId != g.PolicyId || decision.Version != g.PolicyVersion || decision.Restrictions.Any(r => r.MaximumRetentionDays is not null))
                 throw new UnauthorizedAccessException("Current provider rights denied.");
         }
@@ -172,6 +172,7 @@ public sealed class ProviderActivation(BetStatsDbContext db, PostgreSqlPipeline 
                 await db.SaveChangesAsync(t); newReservation = true;
             }
             await jobs.CheckAsync(claim, t); await tx.CommitAsync(t);
+            if (newReservation) OperationalDiagnostics.Record("provider_quota_reserved", "consumed", g.SourceId);
         }
         var raw = await db.RawPayloads.AsNoTracking().SingleOrDefaultAsync(x => x.IngestionRunId == reserved.RunId, t);
         var history = await db.Set<ProviderRequestEvent>().AsNoTracking().Where(x => x.ExecutionId == claim.ExecutionId).ToListAsync(t);
@@ -182,7 +183,7 @@ public sealed class ProviderActivation(BetStatsDbContext db, PostgreSqlPipeline 
             // A reservation from an earlier invocation is never an instruction to re-download.
             if (reserved.Owner != claim.Owner || reserved.Attempt != claim.Attempt || history.Any(x => x.Stage != "Reserved") ||
                 reserved.RecordedUtc < claim.StartedUtc || !newReservation)
-                return (new(PipelineState.Blocked, "provider_response_uncertain_requires_reconciliation"), null);
+                { OperationalDiagnostics.Record("provider_attempt_uncertain", "blocked", g.SourceId); return (new(PipelineState.Blocked, "provider_response_uncertain_requires_reconciliation"), null); }
             await jobs.CheckAsync(claim, t); await Enabled(g, t);
             var adapter = transport.Adapter(options, g, policies, clock);
             var result = await executor.ExecuteAsync(adapter,
@@ -224,6 +225,7 @@ public sealed class ProviderActivation(BetStatsDbContext db, PostgreSqlPipeline 
     }
     public async Task ReconcileAsync(Guid executionId, PipelineApproval approval, CancellationToken t = default)
     {
+        OperationalDiagnostics.Record("provider_recovery_requested", "started");
         approval.Validate(); if (!options.Development) throw new UnauthorizedAccessException("Development required.");
         db.ChangeTracker.Clear(); var r = await db.Set<ProviderRequestEvent>().AsNoTracking().SingleAsync(x => x.ExecutionId == executionId && x.Stage == "Reserved", t);
         await using var tx = await db.Database.BeginTransactionAsync(t);
@@ -252,7 +254,7 @@ public sealed class ProviderActivation(BetStatsDbContext db, PostgreSqlPipeline 
         var r = await db.Set<ProviderRequestEvent>().AsNoTracking().SingleAsync(x => x.ExecutionId == claim.ExecutionId && x.Stage == "Prepared", t);
         _ = await publications.PlanAsync(r.RawId!.Value, g.Canary, g.EvidenceKind, t);
     }
-    public async Task<ProviderActivationStatus> StatusAsync(Guid sourceId, bool display, CancellationToken t = default)
+    public async Task<ProviderActivationStatus> StatusAsync(Guid sourceId, InspectionAudience display, CancellationToken t = default)
     {
         var e = await db.Set<ProviderActivationEvent>().AsNoTracking().Where(x => x.SourceId == sourceId).OrderByDescending(x => x.Sequence).FirstOrDefaultAsync(t);
         ProviderActivationGrant? g = e is null ? null : await Grant(e.GrantId, t); var blockers = new List<string>(); var authorized = false;

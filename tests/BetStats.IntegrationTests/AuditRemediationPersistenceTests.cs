@@ -142,6 +142,7 @@ public sealed class AuditRemediationPersistenceTests(PostgreSqlFixture fixture) 
         Assert.Equal(SourceOperationalStatus.Missing, await new SourceOperationalStatusReader(context).ReadAsync(Guid.NewGuid()));
     });
 
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task Bs004_upgrade_preserves_raw_and_observation_and_assigns_conservative_availability()
     {

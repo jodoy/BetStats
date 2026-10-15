@@ -5,34 +5,46 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   build:
+    timeout-minutes: 35
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore BetStats.slnx
+        run: dotnet restore BetStats.slnx --locked-mode
 
       - name: Build
         run: dotnet build BetStats.slnx --configuration Release --no-restore
 
-      - name: Unit tests
-        run: dotnet test tests/BetStats.UnitTests --configuration Release --no-build
-
-      - name: Architecture tests
-        run: dotnet test tests/BetStats.ArchitectureTests --configuration Release --no-build
+      - name: Dependency vulnerability audit
+        shell: pwsh
+        run: ./eng/audit-dependencies.ps1
 
       - name: Verify Docker for integration tests
         run: docker info
 
-      - name: PostgreSQL integration tests
-        run: dotnet test tests/BetStats.IntegrationTests --configuration Release --no-build
+      - name: Full tests (all cases exactly once)
+        shell: pwsh
+        run: ./eng/test.ps1 -Suite Full -NoBuild
+
+      - name: Test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-evidence
+          path: artifacts/tests
+          retention-days: 14

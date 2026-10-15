@@ -5,6 +5,7 @@ using BetStats.Domain.Coverage;
 
 namespace BetStats.UnitTests;
 
+[Trait("Category", "Security")]
 public sealed class AcquisitionContractTests
 {
     private static AcquisitionPlan Plan() => new(1, new(1, Guid.NewGuid(), "controlled-local", Guid.NewGuid(), 1, FootballTransport.LocalCsv,
