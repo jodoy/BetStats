@@ -23,6 +23,21 @@ public static class PipelineOperatorCommand
         object? result = null; PipelineClaim? claim = null; var success = true;
         switch (action)
         {
+            case "provider-register":
+                var grantPath = Text("GrantPath");
+                await using (var file = new FileStream(grantPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous))
+                {
+                    if (file.Length is < 1 or > 16384) throw new ArgumentException("Bounded grant file required.");
+                    var grantBytes = new byte[checked((int)file.Length)]; await file.ReadExactlyAsync(grantBytes, token);
+                    if (await file.ReadAsync(new byte[1], token) != 0) throw new ArgumentException("Grant file changed.");
+                    result = await services.GetRequiredService<ProviderActivation>().RegisterAsync(JsonSerializer.Deserialize<BetStats.Application.Providers.ProviderActivationGrant>(grantBytes, JsonOptions) ?? throw new ArgumentException("Grant required."), approval, token);
+                }
+                break;
+            case "provider-activate": case "provider-disable":
+                await services.GetRequiredService<ProviderActivation>().SetEnabledAsync(Id("GrantId"), action == "provider-activate", approval, token); break;
+            case "provider-plan": result = await services.GetRequiredService<ProviderActivation>().PlanAsync(Id("GrantId"), token); break;
+            case "provider-status": result = await services.GetRequiredService<ProviderActivation>().StatusAsync(Id("SourceId"), false, token); break;
+            case "provider-reconcile-uncertain": await services.GetRequiredService<ProviderActivation>().ReconcileAsync(Id("ExecutionId"), approval, token); break;
             case "plan":
                 byte[] bytes;
                 await using (var file = new FileStream(Text("DefinitionPath"), FileMode.Open, FileAccess.Read, FileShare.Read, 8192, FileOptions.Asynchronous))

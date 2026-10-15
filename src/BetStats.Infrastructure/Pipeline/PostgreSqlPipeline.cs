@@ -20,7 +20,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         db.Add(new PipelineReceipt { Id = Guid.NewGuid(), JobId = job.Id, ExecutionId = execution?.Id, Owner = execution?.Owner ?? Guid.Empty,
             State = state, Category = category, Actor = approval.Actor, Reason = approval.Reason, RecordedUtc = now, ArtifactId = outcome?.ArtifactId, ArtifactHash = outcome?.ArtifactHash });
 
-    public async Task<object> PlanAsync(Guid id, PipelineDefinition definition, PipelineApproval approval, CancellationToken token = default)
+    public async Task<object> PlanAsync(Guid id, PipelineDefinition definition, PipelineApproval approval, CancellationToken token = default, bool createOnly = false)
     {
         approval.Validate(); definition.Validate(); if (id == Guid.Empty) throw new ArgumentException("Job UUID required.");
         db.ChangeTracker.Clear();
@@ -32,6 +32,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         var content = CanonicalDatasetJson.Serialize(definition); var hash = CanonicalDatasetJson.Hash(content);
         if (content.Length > 2097152) throw new ArgumentException("Canonical job definition exceeds storage bound.");
         var prior = job.Version == 0 ? null : await db.Set<PipelineJobVersion>().SingleAsync(v => v.JobId == id && v.Version == job.Version, token);
+        if (createOnly && prior is not null && prior.Hash != hash) throw new InvalidDataException("Prepared child job has a different approved definition.");
         if (prior?.Hash == hash) { await tx.CommitAsync(token); return new { JobId = id, job.Version, Hash = hash, Reused = true }; }
         job.Version++; job.State = PipelineState.Disabled; job.Enabled = false; job.NextDueUtc = definition.Schedule.FirstDueUtc;
         var now = await Now(token);
@@ -105,7 +106,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         var job = await LockJob(claim.JobId, token); var e = await LockExecution(claim.ExecutionId, token); var now = await Now(token);
         if (!Matches(e, claim) || e.State != PipelineState.Running || e.LeaseUntilUtc <= now) throw new InvalidOperationException("execution_fence_lost");
         var terminal = e.CancelRequested ? PipelineState.Cancelled : outcome.State;
-        if (claim.Definition.Kind == PipelineKind.ProviderPublication && terminal != PipelineState.Completed)
+        if (claim.Definition.Kind is PipelineKind.ProviderPublication or PipelineKind.ProviderAcquisition && terminal != PipelineState.Completed)
         {
             artifact = null;
             outcome = outcome with { ArtifactId = null, ArtifactHash = null };
@@ -131,7 +132,7 @@ public sealed class PostgreSqlPipeline(BetStatsDbContext db)
         var category = e.CancelRequested ? "operator_cancelled" : outcome.Category;
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO pipeline.\"Diagnostics\" (\"Id\",\"ExecutionId\",\"JobId\",\"State\",\"Category\",\"DurationMilliseconds\") VALUES ({logId},{e.Id},{e.JobId},{(int)terminal},{category},{duration})", token);
         await db.Database.ExecuteSqlRawAsync("DELETE FROM pipeline.\"Diagnostics\" WHERE \"RecordedUtc\"<clock_timestamp()-interval '30 days' OR \"Id\" IN (SELECT \"Id\" FROM pipeline.\"Diagnostics\" ORDER BY \"RecordedUtc\" DESC,\"Id\" OFFSET 1000)", token);
-        if (claim.Definition.Kind == PipelineKind.ProviderPublication && terminal == PipelineState.Completed) await CheckAsync(claim, token);
+        if (claim.Definition.Kind is PipelineKind.ProviderPublication or PipelineKind.ProviderAcquisition && terminal == PipelineState.Completed) await CheckAsync(claim, token);
         await db.SaveChangesAsync(token); await tx.CommitAsync(token);
         return outcome with { State = terminal, Category = category };
     }

@@ -10,6 +10,8 @@ var demo = args.Contains("--synthetic-demo", StringComparer.Ordinal);
 var approve = args.Contains("--approve-synthetic", StringComparer.Ordinal);
 var builder = Host.CreateApplicationBuilder(args.Where(a => a is not ("--synthetic-demo" or "--approve-synthetic")).ToArray());
 builder.Services.AddPersistence(builder.Configuration);
+builder.Services.AddSingleton(new BetStats.Infrastructure.Pipeline.ProviderTransportOptions(builder.Environment.IsDevelopment(),
+    Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_ENABLED") == "true", () => Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_KEY")));
 using var host = builder.Build();
 if (builder.Configuration["Pipeline:Action"] is not null)
 {

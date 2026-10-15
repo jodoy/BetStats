@@ -76,11 +76,12 @@ public sealed class ResultOperationsWorkflowTests(PostgreSqlFixture fixture) : I
         }
         public async ValueTask DisposeAsync() { Scope.Dispose(); await Provider.DisposeAsync(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
-    internal async Task<Scenario> Create(bool allowDisplay = false, DateTime? targetKickoff = null)
+    internal async Task<Scenario> Create(bool allowDisplay = false, DateTime? targetKickoff = null, Action<IServiceCollection>? configure = null)
     {
         var root = Path.Combine(Path.GetTempPath(), "betstats-bs010-" + Guid.NewGuid().ToString("N"));
         var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:BetStats"] = fixture.GetConnectionString(), ["Ingestion:RawStoragePath"] = root }).Build();
-        var provider = new ServiceCollection().AddPersistence(config).BuildServiceProvider(); var scope = provider.CreateScope();
+        var services = new ServiceCollection().AddPersistence(config); configure?.Invoke(services);
+        var provider = services.BuildServiceProvider(); var scope = provider.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<BetStatsDbContext>(); var at = await db.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync();
         var fiction = SyntheticResultScenario.Create(new Clock(at));
         if (targetKickoff is { } kickoff)
