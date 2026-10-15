@@ -1,5 +1,6 @@
 namespace BetStats.ArchitectureTests;
 
+[Trait("Category", "Security")]
 public sealed class BacktestBoundaryTests
 {
     private static string Root()

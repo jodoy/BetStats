@@ -9,7 +9,10 @@ Najpierw wykonaj [listę kontroli](../en/data/provider-activation-checklist.md) 
 [instrukcji EN](provider-canary.en.md) są dokładnymi poleceniami wspólnymi dla obu
 języków. Nie umieszczaj klucza w czacie, plikach repozytorium ani argumentach CLI.
 Ustaw `DOTNET_ENVIRONMENT=Development`; klucz pochodzi wyłącznie z
-`BETSTATS_API_FOOTBALL_KEY`, a flaga z `BETSTATS_API_FOOTBALL_ENABLED=true`.
+`BETSTATS_API_FOOTBALL_KEY` lub, tylko w Development, z prywatnego pliku
+`%LOCALAPPDATA%\BetStats\secrets\api-football.json` o formacie `{"ApiKey":""}`.
+Zmienna środowiskowa ma pierwszeństwo. Flaga włączenia pozostaje wyłącznie w
+`BETSTATS_API_FOOTBALL_ENABLED=true`; zapis pliku nie uruchamia pobierania.
 
 1. Przygotuj poza Git rzeczywistą, zatwierdzoną zgodę w `provider-grant.json`.
    Zgoda musi obejmować cały oryginalny JSON fixtures, RAW, trwałe przechowywanie,

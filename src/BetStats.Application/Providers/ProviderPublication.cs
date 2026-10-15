@@ -1,3 +1,4 @@
+using BetStats.Application.Governance;
 using BetStats.Application.Ingestion;
 using BetStats.Application.Pipeline;
 
@@ -24,6 +25,6 @@ public sealed record ProviderPublicationStatus(Guid JobId, PipelineState State, 
 public sealed record PublicationOperationState(Guid? ExecutionId, PipelineState State, string Category, DateTime RecordedUtc);
 public interface IProviderPublicationReports
 {
-    Task<ProviderPublicationArtifact> VerifyAsync(Guid receiptId, bool display, CancellationToken token = default);
-    Task<ProviderPublicationStatus> StatusAsync(Guid jobId, bool display, CancellationToken token = default);
+    Task<ProviderPublicationArtifact> VerifyAsync(Guid receiptId, InspectionAudience display, CancellationToken token = default);
+    Task<ProviderPublicationStatus> StatusAsync(Guid jobId, InspectionAudience display, CancellationToken token = default);
 }

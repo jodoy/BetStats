@@ -14,7 +14,7 @@ using BetStats.Infrastructure.Quality;
 namespace BetStats.Infrastructure.Dashboard;
 
 public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets datasets, IHistoricalBacktests backtests,
-    ISourcePolicyEvaluator policies, IRawPayloadStore rawStore, IFootballResults results, IFootballResultDatasets resultDatasets) : IDashboardQueries
+    ISourcePolicyEvaluator policies, IRawPayloadStore rawStore, IFootballResults results, IFootballResultDatasets resultDatasets, OperatorInspectionContext? inspection = null) : IDashboardQueries
 {
     // Scope filtering stays in PostgreSQL; only bounded page artifacts are materialized.
     private IQueryable<Guid> DatasetIds(DashboardFilter f) =>
@@ -38,10 +38,10 @@ public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets d
         var now = await QualityPersistence.Now(db, token);
         foreach (var source in raw.GroupBy(r => r.DataSourceId))
         {
-            foreach (var purpose in new[] { DataPurpose.PublicDisplay, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention, DataPurpose.RawPayloadStorage })
+            foreach (var purpose in new[] { (inspection?.Audience ?? (InspectionAudience)true).Purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention, DataPurpose.RawPayloadStorage })
             {
                 // Attribution restrictions fail closed: the MVP does not claim attribution it cannot render safely.
-                var decision = await policies.EvaluateAsync(source.Key, purpose, now, new(PublicDisplay: true, IntendedRetentionDays: 1), token);
+                var decision = await policies.EvaluateAsync(source.Key, purpose, now, (inspection?.Audience ?? (InspectionAudience)true).Context, token);
                 if (!decision.Allowed || decision.Restrictions.Any(r => r.MaximumRetentionDays is { } days && source.Any(s => now - s.RetrievedAtUtc > TimeSpan.FromDays(days))))
                     throw new UnauthorizedAccessException("Display or retention permission denied.");
             }
@@ -108,7 +108,7 @@ public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets d
         foreach (var r in rows)
         {
             var now = await QualityPersistence.Now(db, token);
-            var evidence = await results.ReadAsync(new(r.CompetitionId, r.SeasonId, now, DataPurpose.InternalAnalytics, new(PublicDisplay: true, IntendedRetentionDays: 1), EventId: r.EventId), token);
+            var evidence = await results.ReadAsync(new(r.CompetitionId, r.SeasonId, now, DataPurpose.InternalAnalytics, (inspection?.Audience ?? (InspectionAudience)true).Context, EventId: r.EventId), token);
             var eligible = evidence.Results.Where(e => e.Eligible).ToArray();
             if (eligible.Length > 0) await AuthorizeRaw(eligible.Select(e => e.Observation.RawId), token);
             var values = eligible.Select(e => e.Observation.Value).Distinct().ToArray();

@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
+[Trait("Category", "Migration")]
 public sealed class ProviderActivationMigrationTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     [Fact] public async Task Additive_upgrade_preserves_raw_canonical_receipts_and_frozen_artifacts()

@@ -328,6 +328,7 @@ public sealed class CanonicalPersistenceTests(PostgreSqlFixture fixture) : IClas
         Assert.True(count >= 20);
     }
 
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task Bs002_database_upgrades_without_losing_existing_ingestion_rows()
     {

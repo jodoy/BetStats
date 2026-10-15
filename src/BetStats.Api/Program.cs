@@ -5,8 +5,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddPersistence(builder.Configuration);
-builder.Services.AddSingleton(new BetStats.Infrastructure.Pipeline.ProviderTransportOptions(builder.Environment.IsDevelopment(),
-    Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_ENABLED") == "true", () => Environment.GetEnvironmentVariable("BETSTATS_API_FOOTBALL_KEY")));
+builder.Services.AddSingleton(BetStats.Infrastructure.Pipeline.ProviderCredentialFile.CreateOptions(builder.Environment.IsDevelopment()));
 if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Dashboard:DemoEnabled"))
     builder.Services.AddScoped<BetStats.Application.Dashboard.IDashboardQueries, BetStats.Application.Dashboard.DemoDashboardQueries>();
 builder.Services.AddProblemDetails();
@@ -45,6 +44,18 @@ app.MapGet("/api/v1/sports", Results<Ok<PublicSportPage>, ProblemHttpResult> (in
     .WithDescription("Stable ordinal code ordering. Optional offset defaults to 0 and limit to 20 (maximum 100). Returns project-owned reference vocabulary only; no provider-derived canonical rows or audit metadata.")
     .ProducesProblem(400).ProducesProblem(500);
 
+app.MapGet("/health/ready", async (HttpContext context, CancellationToken token) =>
+{
+    context.Response.Headers.CacheControl = "no-store";
+    if (!BetStats.Application.Dashboard.DashboardAccess.Allowed(app.Environment.IsDevelopment(), context.Connection.RemoteIpAddress, context.Request.Host.Host, context.Request.Headers.Origin.ToString())) return Results.StatusCode(403);
+    var db = context.RequestServices.GetRequiredService<BetStats.Infrastructure.Persistence.BetStatsDbContext>();
+    var storage = context.RequestServices.GetRequiredService<BetStats.Application.Ingestion.IRawPayloadStore>();
+    var result = await BetStats.Infrastructure.Persistence.InfrastructureReadiness.CheckAsync(db, storage, token);
+    return Results.Json(result, statusCode: result.PostgreSql && result.RawStorage ? 200 : 503);
+}).WithTags("Health").WithSummary("Local PostgreSQL and RAW infrastructure readiness")
+    .Produces<BetStats.Infrastructure.Persistence.InfrastructureReadinessResult>(200)
+    .Produces<BetStats.Infrastructure.Persistence.InfrastructureReadinessResult>(503).Produces(403)
+    .WithDescription("Development loopback infrastructure only; does not certify provider, data, quota or model readiness.");
 app.MapDevelopmentFootball();
 app.Run();
 

@@ -2,6 +2,7 @@ using BetStats.Application.Pipeline;
 
 namespace BetStats.UnitTests;
 
+[Trait("Category", "Security")]
 public sealed class PipelineScheduleTests
 {
     private static readonly DateTime At = new(2026, 10, 25, 1, 0, 0, DateTimeKind.Utc);

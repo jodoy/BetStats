@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Migration")]
 public sealed class RealFootballMigrationTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     [Fact]

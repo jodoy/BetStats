@@ -1,3 +1,4 @@
+using BetStats.Application.Governance;
 using System.Text.Json;
 using BetStats.Application.Coverage;
 using BetStats.Application.Datasets;
@@ -15,8 +16,8 @@ namespace BetStats.Infrastructure.Pipeline;
 public sealed class FootballProspectiveReports(BetStatsDbContext db, FootballAcquisition acquisition, IFootballValidationReports validations, FootballValidation validationService,
     IHistoricalBacktests backtests, IHistoricalCoverage coverage) : IFootballAcquisitionReports
 {
-    public Task<AcquisitionArtifact> AcquisitionAsync(Guid execution, bool display, CancellationToken token = default) => acquisition.ReadAsync(execution, display, token);
-    public Task<AcquisitionJobStatus> StatusAsync(Guid jobId, bool display, CancellationToken token = default) => acquisition.StatusAsync(jobId, display, token);
+    public Task<AcquisitionArtifact> AcquisitionAsync(Guid execution, InspectionAudience display, CancellationToken token = default) => acquisition.ReadAsync(execution, display, token);
+    public Task<AcquisitionJobStatus> StatusAsync(Guid jobId, InspectionAudience display, CancellationToken token = default) => acquisition.StatusAsync(jobId, display, token);
     public async Task<ProspectiveCohortReport> BuildAsync(ProspectiveCohortInput input, CancellationToken token)
     {
         input.Validate(); var acquisitions = new List<AcquisitionArtifact>();
@@ -93,7 +94,7 @@ public sealed class FootballProspectiveReports(BetStatsDbContext db, FootballAcq
                 if (await acquisition.EvidenceAsync(raw.Id, report.Acquisitions[0].Report.Capability, false, token) != raw) throw new InvalidDataException("Coverage RAW changed.");
         }
     }
-    public async Task<ProspectiveCohortArtifact> CohortAsync(Guid execution, bool display, CancellationToken token = default)
+    public async Task<ProspectiveCohortArtifact> CohortAsync(Guid execution, InspectionAudience display, CancellationToken token = default)
     {
         var artifact = await db.Set<PipelineArtifact>().AsNoTracking().SingleAsync(a => a.ExecutionId == execution, token);
         if (artifact.Hash != CanonicalDatasetJson.Hash(artifact.Content) || !await db.Set<PipelineExecution>().AnyAsync(e => e.Id == execution && e.State == PipelineState.Completed, token))

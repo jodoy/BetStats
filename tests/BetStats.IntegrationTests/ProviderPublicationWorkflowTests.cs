@@ -36,13 +36,14 @@ using BetStats.Domain.Quality;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly PipelineApproval Approval = new("test:publication", "Controlled fictional original-RAW publication", true);
     private static readonly ApiFootballCanary Canary = new(1, 999999, 2026, new(2026, 10, 13), new(2026, 10, 19));
     private static readonly FootballImportScope Scope = new("999999", "2026");
     internal sealed record Setup(ResultOperationsWorkflowTests.Scenario Scenario, Guid EventId, Guid HomeId, Guid AwayId, Guid PolicyId, Guid OriginalSourceId);
-    internal async Task<Setup> Create(string? restriction = null, bool reviewed = true, Action<IServiceCollection>? configure = null)
+    internal async Task<Setup> Create(string? restriction = null, bool reviewed = true, Action<IServiceCollection>? configure = null, bool privateOnly = false)
     {
         var s = await new ResultOperationsWorkflowTests(fixture).Create(configure: configure); var originalSource = s.Source; var db = s.Db; var now = await s.Now();
         var source = new DataSource { Id = Guid.NewGuid(), Code = "api-football-fiction-" + Guid.NewGuid().ToString("N"), DisplayName = "Controlled fictional API JSON", IsEnabled = true, CreatedAtUtc = now };
@@ -54,7 +55,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
         var e = new SportingEvent(Guid.NewGuid(), competition, season, null, SportingEventStatus.Scheduled, now);
         e.AddParticipant(home, ParticipantRole.Home, 1); e.AddParticipant(away, ParticipantRole.Away, 2);
         var permissions = FootballProviderContract.ImportPurposes.Concat([DataPurpose.PublicDisplay]).Distinct().Select(p =>
-            new PurposePermission(p, PermissionDecision.Allowed, restriction == "attribution" && p == DataPurpose.InternalAnalytics ? "fictional attribution required" : null,
+            new PurposePermission(p, privateOnly && p == DataPurpose.PublicDisplay ? PermissionDecision.Denied : PermissionDecision.Allowed, restriction == "attribution" && p == DataPurpose.InternalAnalytics ? "fictional attribution required" : null,
                 restriction is "retention" or "retention-current" && p == DataPurpose.HistoricalRetention ? 1 : null));
         var policy = new SourcePolicy(Guid.NewGuid(), source.Id, 1, now.AddDays(-3), null, "synthetic:owned-json", "synthetic:explicit-test-grant", now, permissions);
         db.AddRange(source, competition, season, home, away, e, policy); await db.SaveChangesAsync();
@@ -445,6 +446,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
         }
         s.Db.ChangeTracker.Clear(); Assert.False(await s.Db.Set<ProviderPublicationRecord>().AnyAsync(r => r.Id == id));
     }
+    [Trait("Category", "Migration")]
     [Theory] [InlineData(false)] [InlineData(true)]
     public async Task Additive_migration_supports_fresh_creation_and_prior_schema_upgrade(bool upgrade)
     {

@@ -10,6 +10,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
+[Trait("Category", "Migration")]
 public sealed class PipelineMigrationTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     [Fact] public async Task Upgrade_from_bs014_and_pipeline_operation_preserve_all_finalized_legacy_artifact_bytes()

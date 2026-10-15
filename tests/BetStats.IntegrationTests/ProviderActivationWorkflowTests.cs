@@ -28,6 +28,7 @@ using BetStats.Web.Components;
 namespace BetStats.IntegrationTests;
 
 // No test can reach the Internet: every provider transport is a controlled message handler.
+[Trait("Category", "Security")]
 public sealed class ProviderActivationWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly PipelineApproval Approval = new("test:activation", "Controlled synthetic provider authorization", true);

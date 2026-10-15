@@ -25,6 +25,7 @@ using System.Net;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class AcquisitionWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private sealed class Loopback : IStartupFilter

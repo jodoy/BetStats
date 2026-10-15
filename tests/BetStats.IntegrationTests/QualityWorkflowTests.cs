@@ -17,7 +17,7 @@ namespace BetStats.IntegrationTests;
 
 public sealed class QualityWorkflowTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
-    private sealed class Scenario : IAsyncDisposable
+    internal sealed class Scenario : IAsyncDisposable
     {
         public BetStatsDbContext Db { get; }
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "betstats-quality-" + Guid.NewGuid().ToString("N"));
@@ -38,9 +38,9 @@ public sealed class QualityWorkflowTests(PostgreSqlFixture fixture) : IClassFixt
         public async Task<Guid> Team(string name) => (await Db.Participants.FirstAsync(p => p.Name == name)).Id;
         public async ValueTask DisposeAsync() { await Db.DisposeAsync(); if (Directory.Exists(Root)) Directory.Delete(Root, true); }
     }
-    private async Task<Scenario> Create()
+    internal async Task<Scenario> Create(BetStatsDbContext? context = null)
     {
-        var s = new Scenario(fixture.CreateContext()); s.Source = await SyntheticFootballDemo.PrepareAsync(s.Db, true, "quality-fiction-" + Guid.NewGuid().ToString("N")); return s;
+        var s = new Scenario(context ?? fixture.CreateContext()); s.Source = await SyntheticFootballDemo.PrepareAsync(s.Db, true, "quality-fiction-" + Guid.NewGuid().ToString("N")); return s;
     }
     private static RawReconciliationRequest Request(Guid raw) => new(raw, SyntheticFootballDemo.Scope);
     private static async Task<ReviewResult> Resolve(Scenario s, string team = "Cobalt Owls")

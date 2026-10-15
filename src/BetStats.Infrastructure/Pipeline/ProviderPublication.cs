@@ -24,7 +24,7 @@ public sealed class ProviderPublication(BetStatsDbContext db, IRawPayloadStore s
     ISourcePolicyEvaluator policies, ISourceOperationalStatus sources, PostgreSqlPipeline jobs,
     IAnalyticalQualityGate gate, IFootballResults footballResults) : IProviderPublicationReports
 {
-    private async Task<RawPayload> Raw(ProviderPublicationInput input, bool display, CancellationToken token)
+    private async Task<RawPayload> Raw(ProviderPublicationInput input, InspectionAudience display, CancellationToken token)
     {
         if (input.Version != 1 || input.RawId == Guid.Empty || input.SourceId == Guid.Empty ||
             input.PolicyId == Guid.Empty || input.PolicyVersion < 1 || input.Profile != ApiFootballFixtureAdapter.Profile ||
@@ -41,9 +41,9 @@ public sealed class ProviderPublication(BetStatsDbContext db, IRawPayloadStore s
             throw new UnauthorizedAccessException("Provider source disabled.");
         var now = await QualityPersistence.Now(db, token);
         foreach (var at in new[] { raw.RecordedAtUtc, now })
-        foreach (var purpose in FootballProviderContract.ImportPurposes.Concat(display ? [DataPurpose.PublicDisplay] : Array.Empty<DataPurpose>()))
+        foreach (var purpose in FootballProviderContract.ImportPurposes.Concat(display ? [display.Purpose] : Array.Empty<DataPurpose>()))
         {
-            var p = await policies.EvaluateAsync(input.SourceId, purpose, at, new(PublicDisplay: display, IntendedRetentionDays: 1), token);
+            var p = await policies.EvaluateAsync(input.SourceId, purpose, at, display.Context, token);
             if (!p.Allowed || p.PolicyId != input.PolicyId || p.Version != input.PolicyVersion ||
                 // Durable observations have no approved expiry/purge lifecycle in
                 // this release. Never pretend a requested one-day use supplies one.
@@ -204,6 +204,7 @@ public sealed class ProviderPublication(BetStatsDbContext db, IRawPayloadStore s
         await db.SaveChangesAsync(token);
         _ = await Raw(input, false, token); _ = await Map(input, raw, token); await jobs.CheckAsync(claim, token);
         await tx.CommitAsync(token);
+        OperationalDiagnostics.Record("provider_publication_committed", "succeeded", input.SourceId);
         await tx.DisposeAsync();
         return await VerifyAsync(report.ReceiptId, false, token);
     }
@@ -211,7 +212,7 @@ public sealed class ProviderPublication(BetStatsDbContext db, IRawPayloadStore s
         [(CanonicalEntityKind.Competition, row.CompetitionReference), (CanonicalEntityKind.Season, row.SeasonReference),
          (CanonicalEntityKind.Participant, row.HomeReference), (CanonicalEntityKind.Participant, row.AwayReference), (CanonicalEntityKind.SportingEvent, row.EventReference)];
 
-    public async Task<ProviderPublicationArtifact> VerifyAsync(Guid receiptId, bool display, CancellationToken token = default)
+    public async Task<ProviderPublicationArtifact> VerifyAsync(Guid receiptId, InspectionAudience display, CancellationToken token = default)
     {
         // Independent context/connection: never verify pending tracked entities as committed evidence.
         await using var verify = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(db.Database.GetConnectionString()).Options);
@@ -256,7 +257,7 @@ public sealed class ProviderPublication(BetStatsDbContext db, IRawPayloadStore s
         }
         return new(report, receipt.Hash, receipt.RecordedUtc, true);
     }
-    public async Task<ProviderPublicationStatus> StatusAsync(Guid jobId, bool display, CancellationToken token = default)
+    public async Task<ProviderPublicationStatus> StatusAsync(Guid jobId, InspectionAudience display, CancellationToken token = default)
     {
         var job = await db.Set<PipelineJob>().AsNoTracking().SingleAsync(j => j.Id == jobId, token);
         var version = await db.Set<PipelineJobVersion>().AsNoTracking().SingleAsync(v => v.JobId == jobId && v.Version == job.Version, token);
@@ -286,7 +287,7 @@ public sealed class ProviderPublication(BetStatsDbContext db, IRawPayloadStore s
         return new(jobId, job.State, receipts, attempts, input.RawId, input.RawHash, input.Profile, input.Scope, rawState, parsingState, operations);
     }
 
-    public async Task<AcquisitionArtifact> AcquisitionAsync(Guid executionId, bool display, CancellationToken token)
+    public async Task<AcquisitionArtifact> AcquisitionAsync(Guid executionId, InspectionAudience display, CancellationToken token)
     {
         var artifact = await db.Set<PipelineArtifact>().AsNoTracking().SingleAsync(a => a.ExecutionId == executionId, token);
         if (artifact.Hash != CanonicalDatasetJson.Hash(artifact.Content) || !await db.Set<PipelineExecution>().AnyAsync(e => e.Id == executionId && e.State == PipelineState.Completed, token))

@@ -12,6 +12,7 @@ public sealed class PersistenceTests(PostgreSqlFixture fixture) : IClassFixture<
     private static readonly Guid RunId = Guid.Parse("00000000-0000-0000-0000-000000000002");
     private static readonly Guid PayloadId = Guid.Parse("00000000-0000-0000-0000-000000000003");
 
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task Fresh_database_is_migrated_and_has_no_pending_model_changes()
     {

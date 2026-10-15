@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class PipelineSchedulerTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly PipelineApproval Approval = new("test:operator", "Explicit fictional pipeline verification", true);

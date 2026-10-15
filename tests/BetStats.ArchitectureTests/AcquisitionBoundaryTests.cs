@@ -1,5 +1,6 @@
 namespace BetStats.ArchitectureTests;
 
+[Trait("Category", "Security")]
 public sealed class AcquisitionBoundaryTests
 {
     [Fact] public void Acquisition_has_no_live_transport_or_startup_dispatch_and_monitoring_is_get_only()

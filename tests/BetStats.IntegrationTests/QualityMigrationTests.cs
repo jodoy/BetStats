@@ -10,6 +10,7 @@ using Testcontainers.PostgreSql;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Migration")]
 public sealed class QualityMigrationTests
 {
     [Fact]

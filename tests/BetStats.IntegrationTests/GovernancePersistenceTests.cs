@@ -13,6 +13,7 @@ using Testcontainers.PostgreSql;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class GovernancePersistenceTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private static readonly DateTime Time = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -193,6 +194,7 @@ public sealed class GovernancePersistenceTests(PostgreSqlFixture fixture) : ICla
         var empty = await history.ReadPageAsOfAsync(new(CanonicalEntityKind.Participant, Time.AddSeconds(-1)), 3);
         Assert.Empty(empty.Items); Assert.Null(empty.NextCursor);
     });
+    [Trait("Category", "Migration")]
     [Fact]
     public async Task Bs003_upgrade_preserves_evidence_and_conservatively_records_old_availability()
     {

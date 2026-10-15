@@ -1,3 +1,4 @@
+using BetStats.Application.Governance;
 using BetStats.Application.Coverage;
 using BetStats.Application.Datasets;
 using BetStats.Application.Evaluation;
@@ -75,9 +76,9 @@ public sealed record AcquisitionExecutionStatus(Guid ExecutionId, PipelineState 
 public sealed record AcquisitionJobStatus(Guid JobId, PipelineState State, bool Enabled, bool CurrentlyAuthorized, IReadOnlyList<AcquisitionExecutionStatus> Executions);
 public interface IFootballAcquisitionReports
 {
-    Task<AcquisitionArtifact> AcquisitionAsync(Guid execution, bool display, CancellationToken token = default);
-    Task<ProspectiveCohortArtifact> CohortAsync(Guid execution, bool display, CancellationToken token = default);
-    Task<AcquisitionJobStatus> StatusAsync(Guid jobId, bool display, CancellationToken token = default);
+    Task<AcquisitionArtifact> AcquisitionAsync(Guid execution, InspectionAudience display, CancellationToken token = default);
+    Task<ProspectiveCohortArtifact> CohortAsync(Guid execution, InspectionAudience display, CancellationToken token = default);
+    Task<AcquisitionJobStatus> StatusAsync(Guid jobId, InspectionAudience display, CancellationToken token = default);
 }
 public static class ProspectiveEvidenceRules
 {

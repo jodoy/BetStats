@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BetStats.IntegrationTests;
 
+[Trait("Category", "Security")]
 public sealed class ApiPublicBoundaryDatabaseTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
     private sealed class Host(string connection) : WebApplicationFactory<Program>

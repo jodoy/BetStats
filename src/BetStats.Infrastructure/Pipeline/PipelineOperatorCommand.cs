@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using BetStats.Application.Pipeline;
 using BetStats.Application.Ingestion;
@@ -120,6 +121,9 @@ public static class PipelineOperatorCommand
 
     private static async Task<PipelineOutcome> RunClaim(IServiceProvider services, PostgreSqlPipeline jobs, PipelineClaim claim, PipelineApproval approval, CancellationToken token)
     {
+        using var diagnostics = OperationalDiagnostics.Begin((services.GetService<ILoggerFactory>() ?? Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance).CreateLogger("BetStats.Operations"), claim.JobId, claim.ExecutionId, DiagnosticSource(claim.Definition.PayloadJson));
+        OperationalDiagnostics.Record("job_started", "running");
+        if (claim.Attempt > 1) OperationalDiagnostics.Record("pipeline_recovery_started", "running");
         await using var owner = await jobs.OwnAsync(claim.ExecutionId, token);
         Console.WriteLine(JsonSerializer.Serialize(new { Event = "pipeline_execution_started", CorrelationId = claim.ExecutionId, claim.JobId, claim.Attempt, claim.PlannedUtc, ActualExecutionUtc = claim.StartedUtc }));
         using var work = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -137,13 +141,13 @@ public static class PipelineOperatorCommand
                 }
             }
             catch (OperationCanceledException) when (heartbeatStop.IsCancellationRequested) { }
-            catch { work.Cancel(); }
+            catch { OperationalDiagnostics.Record("heartbeat_failed", "cancelled"); work.Cancel(); }
         }, CancellationToken.None);
         PipelineOutcome outcome; byte[]? artifact = null;
         try { (outcome, artifact) = await services.GetRequiredService<PipelineWork>().ExecuteAsync(claim, approval, work.Token); }
         catch (OperationCanceledException) { outcome = new(PipelineState.Cancelled, token.IsCancellationRequested ? "shutdown_requested" : "cancelled_or_lease_unavailable"); }
         catch (Exception error) when (InfrastructureFailure(error)) { outcome = new(PipelineState.Failed, "database_unavailable"); }
-        catch (Exception error) when (error is UnauthorizedAccessException or IngestionDeniedException) { outcome = new(PipelineState.Blocked, "current_authorization_denied"); }
+        catch (Exception error) when (error is UnauthorizedAccessException or IngestionDeniedException) { OperationalDiagnostics.Record("permission_denied", "blocked"); outcome = new(PipelineState.Blocked, "current_authorization_denied"); }
         catch (Exception error) when (error is InvalidDataException or ArgumentException or InvalidOperationException or KeyNotFoundException or JsonException) { outcome = new(PipelineState.Blocked, "evidence_or_request_conflict"); }
         catch (IOException) { outcome = new(PipelineState.Failed, "local_input_unavailable"); }
         catch (Npgsql.NpgsqlException) { outcome = new(PipelineState.Failed, "database_unavailable"); }
@@ -167,8 +171,14 @@ public static class PipelineOperatorCommand
             outcome = new(PipelineState.Blocked, "publication_evidence_changed");
             outcome = await jobs.CompleteAsync(claim, outcome, approval, completion.Token);
         }
+        OperationalDiagnostics.Record("job_finished", outcome.State.ToString());
         Console.WriteLine(JsonSerializer.Serialize(new { Event = "pipeline_execution_finished", CorrelationId = claim.ExecutionId, claim.JobId, Outcome = outcome }));
         return outcome;
+    }
+    private static Guid? DiagnosticSource(string payload)
+    {
+        try { using var json = JsonDocument.Parse(payload); return json.RootElement.TryGetProperty("SourceId", out var value) && value.TryGetGuid(out var source) ? source : null; }
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return null; }
     }
     public static bool InfrastructureFailure(Exception error) => error is Npgsql.NpgsqlException || error.InnerException is { } inner && InfrastructureFailure(inner);
 }
