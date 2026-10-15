@@ -38,6 +38,17 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
     public async Task Sealed_restore_preserves_original_raw_receipt_and_runtime_replay_without_http()
     {
         var f = await new ProviderPublicationWorkflowTests(fixture).Create(); await using var s = f.Scenario;
+        var providerSource = s.Source; s.Source = f.OriginalSourceId;
+        var definition = await BacktestWorkflowTests.Definition(s);
+        var forecast = await s.Get<BetStats.Application.Evaluation.IHistoricalBacktests>().RunAsync(new(Guid.NewGuid(), definition, "test:backup", "Freeze actual synthetic predictions before backup", true));
+        Assert.Equal(BetStats.Application.Football.ResultOperationStatus.Succeeded, forecast.Status);
+        s.Source = providerSource;
+        Assert.NotEmpty(await s.Db.Backtests.ToArrayAsync());
+        async Task<string> Frozen(BetStatsDbContext db) => CanonicalDatasetJson.Fingerprint(new {
+            Predictions = await db.Backtests.AsNoTracking().OrderBy(x => x.Id).Select(x => new { x.Id, x.Hash, x.Content }).ToArrayAsync(),
+            Metadata = await db.DatasetArtifacts.AsNoTracking().OrderBy(x => x.Id).Select(x => new { x.Id, x.ManifestHash, x.Content }).ToArrayAsync(),
+            Results = await db.FootballResultArtifacts.AsNoTracking().OrderBy(x => x.Id).Select(x => new { x.Id, x.Hash, x.Content }).ToArrayAsync() });
+        var originalFrozen = await Frozen(s.Db);
         var raw = await ProviderPublicationWorkflowTests.Capture(f, complete: false);
         var published = await ProviderPublicationWorkflowTests.Publish(f, raw);
         var backup = Path.Combine(Path.GetTempPath(), "betstats-backup-" + Guid.NewGuid().ToString("N"));
@@ -53,6 +64,7 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
             var connection = new NpgsqlConnectionStringBuilder(fixture.GetConnectionString()) { Database = database };
             await using var restored = new BetStatsDbContext(new DbContextOptionsBuilder<BetStatsDbContext>().UseNpgsql(connection.ConnectionString).Options);
             await DevelopmentBackup.VerifyRestoredAsync(restored, backup, default);
+            Assert.Equal(originalFrozen, await Frozen(restored));
             Assert.Equal((await s.Db.RawPayloads.OrderBy(r => r.Id).Select(r => r.ContentHashSha256).ToArrayAsync()),
                 await restored.RawPayloads.OrderBy(r => r.Id).Select(r => r.ContentHashSha256).ToArrayAsync());
             Assert.Equal(await s.Db.Observations.CountAsync(), await restored.Observations.CountAsync());
@@ -82,6 +94,7 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
             Assert.Equal(published.Report.ReceiptId, replay.Report.ReceiptId); Assert.Equal(published.Hash, replay.Hash);
             Assert.Empty(await restored.Set<ProviderRequestEvent>().ToArrayAsync());
             Assert.Equal(frozen, await restored.Backtests.OrderBy(r => r.Id).Select(r => r.Hash).ToArrayAsync());
+            Assert.Equal(originalFrozen, await Frozen(restored));
             // Ordinary runtime capture still works under the restricted identity.
             var persistence = scope.ServiceProvider.GetRequiredService<IFootballIngestionPersistence>();
             var runtimeStore = scope.ServiceProvider.GetRequiredService<IRawPayloadStore>();
@@ -128,8 +141,8 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
             start.Environment["ConnectionStrings__BetStats"] = fixture.GetConnectionString(); start.Environment["Ingestion__RawStoragePath"] = s.Root;
             start.Environment["BETSTATS_API_FOOTBALL_ENABLED"] = "false";
             using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); await process.WaitForExitAsync(timeout.Token); _ = await error;
-            return (process.ExitCode, await output);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3)); await process.WaitForExitAsync(timeout.Token); var errors = await error;
+            return (process.ExitCode, (await output) + errors);
         }
         try
         {
@@ -138,7 +151,7 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
             var restoredResult = await Script("restore.ps1", "-Backup", backup, "-Destination", restored);
             var match = System.Text.RegularExpressions.Regex.Match(restoredResult.Output, @"Restore container: (betstats-restore-[a-f0-9]{32})");
             if (match.Success) container = match.Groups[1].Value;
-            Assert.Equal(0, restoredResult.Code); Assert.NotNull(container);
+            Assert.True(restoredResult.Code == 0, restoredResult.Output); Assert.NotNull(container);
             Assert.Contains("Verified isolated restore", restoredResult.Output);
             _ = await DevelopmentBackup.VerifySealedAsync(restored, default);
         }

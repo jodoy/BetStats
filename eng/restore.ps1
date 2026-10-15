@@ -14,7 +14,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Disposable PostgreSQL creation failed.' }
     Write-Host "Restore container: $name"
     $ready = $false
-    for ($i=0; $i -lt 60; $i++) { docker exec $name pg_isready -U postgres -d betstats_restore *> $null; if ($LASTEXITCODE -eq 0) { $ready=$true; break }; Start-Sleep -Seconds 1 }
+    # The image starts a temporary socket-only server during initialization.
+    # Require TCP readiness so pg_restore cannot race that server's shutdown.
+    for ($i=0; $i -lt 60; $i++) { docker exec $name pg_isready -h 127.0.0.1 -U postgres -d betstats_restore *> $null; if ($LASTEXITCODE -eq 0) { $ready=$true; break }; Start-Sleep -Seconds 1 }
     if (!$ready) { throw 'Restore PostgreSQL readiness timeout.' }
     New-Item -ItemType Directory -Path $Destination | Out-Null
     if ($IsWindows) {

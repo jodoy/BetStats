@@ -44,8 +44,8 @@ No remote/multi-user authentication system was introduced for a loopback tool.
 Before real import, apply restricted roles in the operator environment and perform
 a representative protected DB+RAW backup drill. The actual existing environment
 was not automatically modified. Historical null-length RAW manifests block backup
-until an approved compatibility procedure is available. Large verified dashboard
-pages and production RTO are not certified by sparse synthetic measurements.
+until an approved compatibility procedure is available. Dense 10/100-event synthetic dashboard pages were additionally measured; large
+production datasets and production RTO are not certified by those measurements.
 
 No real API-Football requests were made in BS-019C. A previously authorized manual
 HTTP 200 check outside this work is neither durable import evidence nor a grant.

@@ -21,6 +21,28 @@ Dashboard limits do NOT mean 10/100 returned fixtures: the frozen dataset has on
 candidate. The larger dashboard data-volume case remains an explicit measurement
 limit; these samples do not certify dense pages or 5000-row reports.
 
+## Dense approved dashboard follow-up
+
+A separate ignored local measurement harness reused ResultOperationsWorkflowTests
+and BacktestWorkflowTests.Definition in a fresh PostgreSQL 17 container. It built
+10 then 100 independent synthetic approved/frozen fixture scenarios, retained all
+source lifetimes and copied their original RAW into one shared test store without
+changing keys/hashes. It queried an unfiltered dashboard page and asserted actual
+cardinality before reporting the sample. Setup is excluded; other local tests
+were running, so wall time reflects shared host load. No production code changed.
+
+| Actual returned fixtures | SQL commands | Verified RAW reads | Time ms |
+| ---: | ---: | ---: | ---: |
+| 10 | 1111 | 30 | 1748.37 |
+| 100 | 11101 | 300 | 17852.73 |
+
+Unlike the sparse measurement, these pages really returned 10/100 distinct events.
+The approximately 111 commands and three RAW reads per fixture reinforce the
+per-row verification bottleneck. This is a cross-source synthetic workload, not
+a production league-history latency guarantee. The local harness and raw JSON
+are retained under ignored artifacts/bs019c-dense; the PR records results and
+fixture construction, not an additional runtime/ingestion implementation.
+
 ## Findings
 
 Quality uses approximately 22 commands per record. Coverage repeats similar

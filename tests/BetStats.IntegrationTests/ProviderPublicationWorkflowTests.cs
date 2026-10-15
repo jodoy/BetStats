@@ -446,6 +446,7 @@ public sealed class ProviderPublicationWorkflowTests(PostgreSqlFixture fixture) 
         }
         s.Db.ChangeTracker.Clear(); Assert.False(await s.Db.Set<ProviderPublicationRecord>().AnyAsync(r => r.Id == id));
     }
+    [Trait("Category", "Migration")]
     [Theory] [InlineData(false)] [InlineData(true)]
     public async Task Additive_migration_supports_fresh_creation_and_prior_schema_upgrade(bool upgrade)
     {

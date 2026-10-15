@@ -24,6 +24,7 @@ public sealed class FootballModelWorkflowTests(PostgreSqlFixture fixture) : ICla
         Assert.Empty(await s.Db.BacktestOperations.Where(e => e.Fingerprint == CanonicalDatasetJson.Fingerprint(d)).ToArrayAsync());
         Assert.Empty(await s.Db.Backtests.Where(e => e.DatasetId == d.DatasetId).ToArrayAsync());
     }
+    [Trait("Category", "Migration")]
     [Fact] public async Task Bs011_database_and_finalized_artifacts_remain_byte_identical_after_models()
     {
         await using var s = await new ResultOperationsWorkflowTests(fixture).Create();
