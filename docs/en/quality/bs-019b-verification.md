@@ -1,15 +1,75 @@
 # BS-019B verification
 
-Engineering acceptance is tracked by the final PR's exact-head CI/CodeQL and local
-verification evidence; the PR remains Draft until all engineering gates pass.
-Operational status: **LIVE_CANARY_BLOCKED**. No real API-Football requests were made.
+## Final local verification — 2026-10-15
 
-The complete suite comprises **991 cases**: 372 unit, 28 architecture and 591
-disposable PostgreSQL integration cases. This adds 62 cases to the previous 929
-(14 unit, 2 architecture, 46 integration). Required commands: locked restore,
-Release build without restore, full solution test without build, EF pending-model
-check and `git diff --check`. The PR records actual passing totals, warnings/errors
-and workflow links rather than treating the case count as a passing result.
+**991 passed, 0 failed, 0 skipped**: 372 unit, 28 architecture and 591 disposable
+PostgreSQL 17 integration cases. Integration completed in **6 min 30 s**. A separate
+focused run passed **86/86**, with no failures or skips, in **49 s**; these cases
+are a repeated subset of the 991, not additional unique cases. This retains the
+previous 929 cases and adds 62 (14 unit, 2 architecture, 46 integration).
+
+| Required check | Actual result |
+| --- | --- |
+| `dotnet restore BetStats.slnx --locked-mode` | Passed; lock files unchanged |
+| `dotnet build BetStats.slnx --configuration Release --no-restore` | Passed; 0 warnings, 0 errors |
+| `dotnet test BetStats.slnx --configuration Release --no-build` | 991/991 passed |
+| `dotnet ef migrations has-pending-model-changes --project src/BetStats.Infrastructure` | No model changes since the last migration |
+| `git diff --check` and `git diff origin/main...HEAD --check` | Passed |
+| Exact changed-file manifest | 50/50 paths match main-relative changes |
+
+Verified runtime and strengthened test revision:
+`b3641b2e86788511e4499f217010944b0e48a1d7`, on the existing
+`feat/bs-019b-authorized-provider-activation` branch. The only code change in final
+verification strengthens existing test assertions; runtime implementation is
+unchanged from `f5550a71b383f5b4a84f877041879fc9476cf87b`.
+
+Workflow evidence for the verified source revision:
+[CI #69](https://github.com/jodoy/BetStats/actions/runs/38660075106) and
+[CodeQL #68](https://github.com/jodoy/BetStats/actions/runs/38660074843).
+The previous implementation head also passed
+[CI #68](https://github.com/jodoy/BetStats/actions/runs/38580938464) and
+[CodeQL #67](https://github.com/jodoy/BetStats/actions/runs/38580938528);
+its CI logs independently confirm 372 + 28 + 591 passing cases and zero warnings/errors.
+
+This report is delivered in a subsequent documentation-only commit. Its final SHA
+and exact-head workflow URLs are pinned in the description of
+[PR #24](https://github.com/jodoy/BetStats/pull/24), with current conclusions under
+[PR #24 checks](https://github.com/jodoy/BetStats/pull/24/checks). Earlier green runs
+do not substitute for that final-head check. Keep Draft until both final-head CI
+and CodeQL pass; then mark ready for review without merging.
+
+Operational status remains **LIVE_CANARY_BLOCKED**. No real provider HTTP was
+executed and no operator-specific provider authorization is claimed.
+
+## Independent security and recovery verification
+
+Inspected the actual source lock/fence/rights boundaries, immutable event schema,
+deferred SQL trigger, original-RAW lookup, parent acknowledgment and test assertions.
+The separate 86-case run includes ProviderActivationWorkflowTests (45),
+ProviderActivationMigrationTests (1), ProviderPublicationWorkflowTests (39), and
+PersistenceTests.Fresh_database_is_migrated_and_has_no_pending_model_changes (1).
+
+- Concurrent contexts reserve against one durable source ceiling; restart and
+  reactivation preserve usage. The controlled handler records exactly one request.
+- A separate governance context revokes the source policy while the controlled
+  HTTP response is in flight. The result is PermissionDenied/Blocked, no RAW is
+  captured, the reservation remains consumed, and another invocation cannot issue
+  a second request. Provider disable in flight and stale ownership also block capture.
+- Deferred commit tests assert the exact PostgreSQL rejection messages for expired
+  ownership, unavailable rights and exhausted durable quota, rather than accepting
+  an unrelated generic constraint failure.
+- A lost HTTP response without RAW stays uncertain and cannot trigger automatic
+  re-download. Explicit reconciliation never refunds the reservation.
+- After RAW capture-before-finalization/ack interruption, recovery verifies and
+  reuses the original run-bound bytes/hash/clocks. After canonical commit-before-
+  acknowledgment, the real Worker recovery reuses the immutable publication receipt.
+- Reviewed identity reprocessing, revised-child conflicts, result/schedule
+  corrections, historical cutoffs and frozen artifacts preserve existing evidence.
+- Fresh database creation applies all 16 migrations. Upgrade from BS-019A preserves
+  populated RAW, canonical observations and publication receipts. Legacy frozen
+  prediction/result/evaluation preservation tests remain in the full suite.
+- Controlled handlers and synthetic-only fixtures are used throughout. Stock
+  transport cannot activate from synthetic grants or synthetic policy evidence.
 
 ## Scope and trust boundaries
 
