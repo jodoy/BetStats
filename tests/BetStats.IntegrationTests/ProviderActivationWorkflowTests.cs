@@ -195,13 +195,31 @@ public sealed class ProviderActivationWorkflowTests(PostgreSqlFixture fixture) :
             Assert.Equal(1, (await f.Activation.StatusAsync(s.Source, false)).UsedRequests);
         }
     }
-    [Fact] public async Task Stale_worker_and_disabled_inflight_response_cannot_capture()
+    [Fact] public async Task Stale_worker_disable_and_revocation_during_http_cannot_capture()
     {
         var f = await Create(); await using var s = f.S; var input = await Activate(f); var claim = await Claim(f, input);
         await Assert.ThrowsAsync<InvalidOperationException>(() => Execute(f, claim with { Owner = Guid.NewGuid() }, input)); Assert.Equal(0, f.Handler.Calls);
         f.Handler.Respond = async (_, _) => { await f.Activation.SetEnabledAsync(f.Grant.Id, false, Approval); return Response(); };
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Execute(f, claim, input)); Assert.Equal(1, f.Handler.Calls);
         Assert.Empty(await s.Db.RawPayloads.Where(x => x.DataSourceId == s.Source).ToArrayAsync());
+        var revoked = await Create(); await using var revokedScenario = revoked.S;
+        var revokedInput = await Activate(revoked); var revokedClaim = await Claim(revoked, revokedInput);
+        revoked.Handler.Respond = async (_, _) => {
+            using var reviewerScope = revokedScenario.Provider.CreateScope();
+            var reviewer = reviewerScope.ServiceProvider.GetRequiredService<BetStatsDbContext>();
+            var policy = await reviewer.SourcePolicies.Include(x => x.Audit).SingleAsync(x => x.Id == revoked.Grant.PolicyId);
+            var at = await reviewer.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync();
+            policy.Revoke(Guid.NewGuid(), Approval.Actor, "Revoke while controlled HTTP is in flight", at);
+            await reviewer.SaveChangesAsync(); return Response();
+        };
+        var denied = await Execute(revoked, revokedClaim, revokedInput);
+        Assert.Equal(PipelineState.Blocked, denied.Outcome.State);
+        Assert.Equal("provider_PermissionDenied", denied.Outcome.Category);
+        Assert.Equal(1, revoked.Handler.Calls);
+        Assert.Empty(await revokedScenario.Db.RawPayloads.Where(x => x.DataSourceId == revokedScenario.Source).ToArrayAsync());
+        Assert.Equal(1, await revokedScenario.Db.Set<ProviderRequestEvent>().CountAsync(x => x.SourceId == revokedScenario.Source && x.Stage == "Reserved"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Execute(revoked, revokedClaim, revokedInput));
+        Assert.Equal(1, revoked.Handler.Calls); // Neither the in-flight response nor recovery bypasses revocation.
     }
     [Fact] public async Task Concurrent_workers_share_budget_and_restart_does_not_reset_it()
     {
@@ -363,6 +381,8 @@ public sealed class ProviderActivationWorkflowTests(PostgreSqlFixture fixture) :
             var p=await s.Db.SourcePolicies.Include(x=>x.Audit).SingleAsync(x=>x.Id==f.Grant.PolicyId);
             p.Revoke(Guid.NewGuid(),Approval.Actor,Approval.Reason,await s.Now()); await s.Db.SaveChangesAsync();
         }
-        Assert.Equal("23514",(await Assert.ThrowsAsync<PostgresException>(()=>tx.CommitAsync())).SqlState);
+        var error = await Assert.ThrowsAsync<PostgresException>(()=>tx.CommitAsync());
+        Assert.Equal("23514", error.SqlState);
+        Assert.Equal(fault switch { "lease" => "Provider request owner fenced at commit", "rights" => "Provider activation rights unavailable at commit", _ => "Provider durable quota unavailable" }, error.MessageText);
     }
 }
