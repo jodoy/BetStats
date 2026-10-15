@@ -25,7 +25,8 @@ is not certified by successful synthetic tests.
 
 4. The transaction creates/updates betstats_admin and betstats_app, rejects app
    memberships, transfers ownership of this DB/application schemas/tables/functions
-   and EF history to admin, revokes public CREATE/TEMP, then grants runtime usage,
+   and EF history to admin, revokes public CREATE/TEMP and previous explicit runtime
+   grants, then grants runtime usage,
    SELECT/INSERT/UPDATE/DELETE and sequence USAGE/SELECT. Immutable-table triggers
    still reject forbidden DML. Runtime cannot CREATE/ALTER/DROP/TRUNCATE, own tables,
    change replication mode, create roles or disable triggers.
@@ -39,6 +40,9 @@ No roles/ownership migrate at application startup. This is cluster administratio
 not an EF model change; historical schema/enum values and 16 migrations remain.
 Future tables/sequences created by admin inherit runtime grants. Re-run provisioning
 after a reviewed schema change to reconcile ownership and existing grants.
+Unexpected ownership, inherited/public CREATE or TRUNCATE privileges abort the
+transaction rather than certify an existing powerful identity. Default admin-created
+table/sequence grants are also reset to the reviewed runtime set.
 Use a dedicated Development cluster; role names are cluster-wide. Reject unexpected
 memberships rather than broadening permissions to bypass an error.
 

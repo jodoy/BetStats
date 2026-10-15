@@ -18,7 +18,9 @@
   a necessary condition, not an automatically proven fact.
 - Runtime identity is not an object owner, superuser or replication administrator.
   DDL/TRUNCATE/trigger disable/role creation/replication-mode denial and permitted
-  ingestion/publication receipt replay are exercised in isolation.
+  ingestion/fresh canonical publication/receipt replay are exercised in isolation.
+  Re-provisioning removes previous explicit CREATE/TRUNCATE/default grants;
+  unexpected ownership or inherited public privileges fail closed.
 - Credential support retained: Development-only fixed local path, environment
   precedence, bounds, no repository ancestor or file/directory links. The actual
   Windows key file's metadata showed protected inheritance and one owner access

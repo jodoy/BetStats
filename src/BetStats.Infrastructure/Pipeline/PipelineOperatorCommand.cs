@@ -178,7 +178,7 @@ public static class PipelineOperatorCommand
     private static Guid? DiagnosticSource(string payload)
     {
         try { using var json = JsonDocument.Parse(payload); return json.RootElement.TryGetProperty("SourceId", out var value) && value.TryGetGuid(out var source) ? source : null; }
-        catch (JsonException) { return null; }
+        catch (Exception error) when (error is JsonException or InvalidOperationException) { return null; }
     }
     public static bool InfrastructureFailure(Exception error) => error is Npgsql.NpgsqlException || error.InnerException is { } inner && InfrastructureFailure(inner);
 }

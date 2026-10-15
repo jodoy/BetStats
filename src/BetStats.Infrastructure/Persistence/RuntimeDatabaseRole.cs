@@ -23,15 +23,16 @@ public static class RuntimeDatabaseRole
         await using (var memberships = new NpgsqlCommand("SELECT count(*) FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname='betstats_app')", connection, tx))
             if ((long)(await memberships.ExecuteScalarAsync(token))! != 0) throw new InvalidOperationException("Runtime role must have no memberships.");
         var database = new NpgsqlCommandBuilder().QuoteIdentifier(connection.Database);
-        await Execute($"ALTER DATABASE {database} OWNER TO betstats_admin; REVOKE CREATE,TEMPORARY ON DATABASE {database} FROM PUBLIC; GRANT CONNECT ON DATABASE {database} TO betstats_app;");
+        await Execute($"ALTER DATABASE {database} OWNER TO betstats_admin; REVOKE CREATE,TEMPORARY ON DATABASE {database} FROM PUBLIC; REVOKE ALL ON DATABASE {database} FROM betstats_app; GRANT CONNECT ON DATABASE {database} TO betstats_app;");
         await Execute("REVOKE CREATE ON SCHEMA public FROM PUBLIC;");
+        await Execute("REVOKE CREATE ON SCHEMA public FROM betstats_app;");
         // Fixed application schemas; no blanket rights on third-party/system schemas.
         foreach (var schema in new[] { "ingestion", "canonical", "governance", "provenance", "quality", "datasets", "coverage", "football", "evaluation", "pipeline" })
         {
             await using var exists = new NpgsqlCommand("SELECT EXISTS(SELECT FROM pg_namespace WHERE nspname=@name)", connection, tx); exists.Parameters.AddWithValue("name", schema);
             if (!(bool)(await exists.ExecuteScalarAsync(token))!) continue;
             var identifier = new NpgsqlCommandBuilder().QuoteIdentifier(schema);
-            await Execute($"ALTER SCHEMA {identifier} OWNER TO betstats_admin; GRANT USAGE ON SCHEMA {identifier} TO betstats_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {identifier} TO betstats_app; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {identifier} TO betstats_app; ALTER DEFAULT PRIVILEGES FOR ROLE betstats_admin IN SCHEMA {identifier} GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO betstats_app; ALTER DEFAULT PRIVILEGES FOR ROLE betstats_admin IN SCHEMA {identifier} GRANT USAGE,SELECT ON SEQUENCES TO betstats_app;");
+            await Execute($"ALTER SCHEMA {identifier} OWNER TO betstats_admin; REVOKE ALL ON SCHEMA {identifier} FROM betstats_app; GRANT USAGE ON SCHEMA {identifier} TO betstats_app; REVOKE ALL ON ALL TABLES IN SCHEMA {identifier} FROM betstats_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA {identifier} TO betstats_app; REVOKE ALL ON ALL SEQUENCES IN SCHEMA {identifier} FROM betstats_app; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA {identifier} TO betstats_app; ALTER DEFAULT PRIVILEGES FOR ROLE betstats_admin IN SCHEMA {identifier} REVOKE ALL ON TABLES FROM betstats_app; ALTER DEFAULT PRIVILEGES FOR ROLE betstats_admin IN SCHEMA {identifier} GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO betstats_app; ALTER DEFAULT PRIVILEGES FOR ROLE betstats_admin IN SCHEMA {identifier} REVOKE ALL ON SEQUENCES FROM betstats_app; ALTER DEFAULT PRIVILEGES FOR ROLE betstats_admin IN SCHEMA {identifier} GRANT USAGE,SELECT ON SEQUENCES TO betstats_app;");
             // Transfer object ownership, so migrations as betstats_admin can alter
             // existing tables/functions, while betstats_app cannot disable triggers.
             await using var objects = new NpgsqlCommand("SELECT 'ALTER ' || CASE c.relkind WHEN 'S' THEN 'SEQUENCE ' ELSE 'TABLE ' END || quote_ident(n.nspname)||'.'||quote_ident(c.relname)||' OWNER TO betstats_admin' FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=@name AND c.relkind IN ('r','p') AND NOT EXISTS(SELECT FROM pg_depend d WHERE d.objid=c.oid AND d.deptype='a')", connection, tx);
@@ -44,6 +45,16 @@ public static class RuntimeDatabaseRole
             foreach (var statement in statements) await Execute(statement);
         }
         await Execute("ALTER TABLE public.\"__EFMigrationsHistory\" OWNER TO betstats_admin; GRANT SELECT ON public.\"__EFMigrationsHistory\" TO betstats_app;");
+        // Fail closed for unexpected inherited/public grants or objects outside
+        // the reviewed schemas; do not silently certify a previously powerful role.
+        await using (var privileges = new NpgsqlCommand("""
+            SELECT EXISTS(SELECT FROM pg_namespace WHERE nspname NOT LIKE 'pg_temp_%' AND nspname NOT LIKE 'pg_toast_temp_%' AND has_schema_privilege('betstats_app',oid,'CREATE'))
+              OR EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relowner=(SELECT oid FROM pg_roles WHERE rolname='betstats_app') AND n.nspname NOT LIKE 'pg_temp_%' AND n.nspname NOT LIKE 'pg_toast_temp_%')
+              OR EXISTS(SELECT FROM pg_class c WHERE c.relkind IN ('r','p') AND has_table_privilege('betstats_app',c.oid,'TRUNCATE'))
+              OR EXISTS(SELECT FROM pg_proc WHERE proowner=(SELECT oid FROM pg_roles WHERE rolname='betstats_app'))
+              OR EXISTS(SELECT FROM pg_database WHERE datdba=(SELECT oid FROM pg_roles WHERE rolname='betstats_app'))
+            """, connection, tx))
+            if ((bool)(await privileges.ExecuteScalarAsync(token))!) throw new InvalidOperationException("Unexpected runtime ownership or CREATE privilege; provisioning rolled back.");
         await tx.CommitAsync(token);
     }
 }

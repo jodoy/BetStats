@@ -73,6 +73,11 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
             await using var roleAdmin = new NpgsqlConnection(connection.ConnectionString); await roleAdmin.OpenAsync();
             var appPassword = Guid.NewGuid().ToString("N"); var adminPassword = Guid.NewGuid().ToString("N");
             await RuntimeDatabaseRole.ConfigureAsync(roleAdmin, adminPassword, appPassword, default);
+            // Upgrading an existing misconfigured runtime identity must remove
+            // its explicit DDL/TRUNCATE grants, not just set role attributes.
+            await using (var misconfigure = new NpgsqlCommand("GRANT CREATE ON SCHEMA canonical TO betstats_app; GRANT TRUNCATE ON ingestion.\"RawPayloads\" TO betstats_app", roleAdmin))
+                await misconfigure.ExecuteNonQueryAsync();
+            await RuntimeDatabaseRole.ConfigureAsync(roleAdmin, adminPassword, appPassword, default);
             connection.Username = "betstats_app"; connection.Password = appPassword;
             await using var app = new NpgsqlConnection(connection.ConnectionString); await app.OpenAsync();
             foreach (var sql in new[] { "CREATE TABLE canonical.unauthorized(id int)", "ALTER TABLE ingestion.\"RawPayloads\" DISABLE TRIGGER ALL", "SET session_replication_role=replica", "TRUNCATE ingestion.\"RawPayloads\"", "CREATE ROLE unauthorized" })
@@ -105,6 +110,15 @@ public sealed class OperationalSafetyTests : IAsyncLifetime
             await runtimeStore.FinalizeAsync(staged);
             await persistence.CompleteAsync(attempt with { Outcome = ImportOutcome.Succeeded }, default);
             Assert.NotEqual(raw, captured.Id);
+            var nextInput = await publisher.PlanAsync(captured.Id, new(1,999999,2026,new(2026,10,13),new(2026,10,19)), ValidationEvidenceKind.Synthetic);
+            var nextJob = Guid.NewGuid();
+            await jobs.PlanAsync(nextJob, new(1, PipelineKind.ProviderPublication, new(await restored.Database.SqlQuery<DateTime>($"SELECT clock_timestamp() AS \"Value\"").SingleAsync()), System.Text.Json.JsonSerializer.Serialize(nextInput)), approval);
+            await jobs.SetEnabledAsync(nextJob, true, approval);
+            var nextClaim = (await jobs.AcquireAsync(approval))!;
+            var nextReceipt = await publisher.PublishAsync(nextClaim, nextInput, approval);
+            Assert.True(nextReceipt.Verified); Assert.Equal(captured.Id, nextReceipt.Report.Input.RawId);
+            Assert.NotEqual(published.Report.ReceiptId, nextReceipt.Report.ReceiptId);
+            Assert.Equal(originalFrozen, await Frozen(restored));
             // Backup binding is checked against the original restored state before
             // this intentionally new capture; do not claim the modified DB is identical.
             var marker = Path.Combine(backup, "COMPLETE"); var seal = await File.ReadAllTextAsync(marker);
