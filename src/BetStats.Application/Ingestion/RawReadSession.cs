@@ -7,6 +7,7 @@ namespace BetStats.Application.Ingestion;
 public sealed class RawReadSession
 {
     private readonly Dictionary<StoredPayload, ReadOnlyMemory<byte>> verified = [];
+    private long retainedBytes;
     public async Task<ReadOnlyMemory<byte>> ReadAsync(IRawPayloadStore store, StoredPayload payload, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
@@ -16,8 +17,12 @@ public sealed class RawReadSession
         bytes = await store.ReadAsync(payload, token);
         if (bytes.Length != payload.Length || !CryptographicOperations.FixedTimeEquals(SHA256.HashData(bytes.Span), Convert.FromHexString(payload.Hash)))
             throw new InvalidDataException("RAW integrity failure.");
-        // At most 16 MiB of verified payload bytes retained by the operation.
-        if (verified.Count < 16) verified.Add(payload, bytes);
+        // Bound bytes and descriptor overhead independently. Small files should
+        // not exhaust a budget intended to protect against large payloads.
+        if (verified.Count < 4096 && retainedBytes + bytes.Length <= 16 * 1_048_576)
+        {
+            verified.Add(payload, bytes); retainedBytes += bytes.Length;
+        }
         return bytes;
     }
 }

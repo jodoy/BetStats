@@ -37,7 +37,7 @@ public sealed class RawReadSessionTests
     [Fact]
     public async Task Retention_is_bounded_and_cancellation_is_observed_on_reuse()
     {
-        var store = new Store(); var session = new RawReadSession();
+        var store = new Store { Bytes = new byte[1_048_576] }; var session = new RawReadSession();
         for (var i = 0; i < 17; i++) _ = await session.ReadAsync(store, Manifest(store, i.ToString()));
         _ = await session.ReadAsync(store, Manifest(store, "16")); Assert.Equal(18, store.Reads);
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
