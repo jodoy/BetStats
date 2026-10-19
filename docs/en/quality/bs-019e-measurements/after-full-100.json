@@ -5,9 +5,9 @@
     "ActualRecords": 100,
     "SqlCommands": 23,
     "RawReads": 0,
-    "Milliseconds": 377.8531,
-    "ProcessAllocatedBytes": 11821336,
-    "SetupMilliseconds": 15741.1838
+    "Milliseconds": 393.5588,
+    "ProcessAllocatedBytes": 6676144,
+    "SetupMilliseconds": 12858.8819
   },
   {
     "Report": "Coverage_UnreviewedPartial",
@@ -15,9 +15,9 @@
     "ActualRecords": 102,
     "SqlCommands": 55,
     "RawReads": 0,
-    "Milliseconds": 222.8054,
-    "ProcessAllocatedBytes": 22729600,
-    "SetupMilliseconds": 15011.0924
+    "Milliseconds": 197.1054,
+    "ProcessAllocatedBytes": 45665024,
+    "SetupMilliseconds": 12579.9935
   },
   {
     "Report": "Dashboard_SparseFrozenPage",
@@ -25,8 +25,8 @@
     "ActualRecords": 1,
     "SqlCommands": 66,
     "RawReads": 1,
-    "Milliseconds": 145.2005,
-    "ProcessAllocatedBytes": 6726448,
-    "SetupMilliseconds": 7570.0902
+    "Milliseconds": 133.4197,
+    "ProcessAllocatedBytes": 15614128,
+    "SetupMilliseconds": 3995.0928
   }
 ]

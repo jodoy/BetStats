@@ -1,7 +1,8 @@
 # BS-019E verification
 
-Status: verification in progress. Do not interpret intermediate successful runs
-as acceptance of later edits. Base: `af468cb`, main after BS-019C / PR #25.
+**ENGINEERING_COMPLETE (correctness verified; performance targets partially met).**
+
+Base: `af468cb`, main after BS-019C / PR #25.
 Branch: `perf/bs-019e-query-batching`. Implementation commits: `e674a8e`,
 `1df581f`, `ca15ca2`, `cc7b617`, `58d96da`, `71b6838`, `a13ce00`,
 `47cfcbb` (audit ADR: `53a4cde`). The tested implementation head is `47cfcbb`;
@@ -67,11 +68,11 @@ FileSystemRawPayloadStore reads reported by the operation meter.
 
 | Report | Actual records | Before SQL | After SQL | Before RAW | After RAW | Before ms | After ms (Full sample) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Quality | 10 | 222 | 23 | 0 | 0 | 508.33 | 65.10 |
-| Quality | 100 | 2202 | 23 | 0 | 0 | 3163.83 | 377.85 |
-| Coverage partial | 12 | 284 | 35 | 0 | 0 | 561.63 | 82.83 |
-| Coverage partial | 102 | 2264 | 55 | 0 | 0 | 3141.32 | 222.81 |
-| Dashboard sparse | 1 | 112 | 66 | 3 | 1 | 162.75 | 145.20 |
+| Quality | 10 | 222 | 23 | 0 | 0 | 508.33 | 98.50 |
+| Quality | 100 | 2202 | 23 | 0 | 0 | 3163.83 | 393.56 |
+| Coverage partial | 12 | 284 | 35 | 0 | 0 | 561.63 | 61.33 |
+| Coverage partial | 102 | 2264 | 55 | 0 | 0 | 3141.32 | 197.11 |
+| Dashboard sparse | 1 | 112 | 66 | 3 | 1 | 162.75 | 133.42 |
 
 Raw samples including post-change allocations and setup times are in
 [the measurement directory](bs-019e-measurements/). Quality 100 and Coverage 100
@@ -138,12 +139,23 @@ so this remains a diagnostic tool rather than a production API.
 
 ## Correctness and operational boundaries
 
-Intermediate Full: 1024/1024, no skipped tests, 375.66 s. Subsequent Full after
-the batch gate/RAW session and new regression cases: 1030/1030, no skipped tests,
-332.99 s. Full including architecture scheduling, byte-based RAW limits and the
-CI build-stamp flow: 1031/1031, no skipped tests, 382.21 s. The final global source
-lock-order fix separately passed its forced-interleaving test; Full including that
-fix is in progress. Existing 1013 tests are retained.
+Final Windows Full for implementation `47cfcbb`: **1032/1032 passed**, zero
+failed/skipped, **316.48 s** (378 unit + 29 architecture + 625 integration).
+Release build passed with zero warnings/errors. Raw TRX and summary are under
+`artifacts/tests/Full-e62fa417d910419caef5428306921992`; the committed measurement
+directory retains the summary and final report samples.
+
+[CI #77](https://github.com/jodoy/BetStats/actions/runs/39245336741) on source/
+evidence head `66c4a0f` passed: **1032/1032**, zero failed/skipped, **259.15 s**
+Full runner window; the Release build took 22.54 s and dependency audit passed.
+[CodeQL #77](https://github.com/jodoy/BetStats/actions/runs/39245336469) passed on
+the same head. That head contains the exact `47cfcbb` implementation; subsequent
+commits only finalize documentation and evidence. Latest documentation-head
+workflow results are recorded in the PR description.
+
+Intermediate successful Full runs were 1024/1024 (375.66 s), 1030/1030
+(332.99 s), and 1031/1031 (382.21 s). They are supporting evidence, not substitutes
+for the final run above. All existing 1013 cases plus 19 new cases are retained.
 
 New tests compare the original QualityReports implementation with the new result
 on the same data (zero/one/multiple observations, batch boundaries 10/100/500/1000),
@@ -178,16 +190,20 @@ baseline. Verified NoBuild rerun: 407/407, 12.00 s test window / 13.19 s full sh
 wall time including fingerprint validation and process startup. The 10-second
 goal is not met; MSBuild evaluation and test-host startup remain material.
 
-Full remains above the aspirational 180-second CI target on this Windows host;
+Full remains above the aspirational 180-second target (316.48 s Windows /
+259.15 s Ubuntu CI);
 preserved per-class databases, migration/restore drills, container lifecycle and
 process overhead are material costs. They were not removed to achieve a timing
-claim. Comparable Ubuntu CI timing remains separate evidence. A 1000-event
+claim. Historical BS-019C Ubuntu Full was 288.90 s for 1013 tests; this is context
+from a different run, not a controlled paired benchmark. A 1000-event
 latency SLO and production-scale performance are not certified.
 
-BS-019D recommendation remains pending final verification. Any subsequent go is
-conditional on review/merge and the existing explicit first-import checklist:
+Recommendation: conditional go for BS-019D engineering preparation
+and a small, explicitly bounded first-import canary after correctness gates and
+review/merge. Large-volume rollout is not certified by these performance samples.
+The actual import retains the existing explicit first-import checklist:
 exact scope/window/request bound, reviewed current rights/activation, restricted
 runtime identity and a protected verified restore. This change does not authorize
 or dispatch a live import, modify data rights or implement an AI Research Agent.
 
-PR: pending creation; no automatic merge.
+PR: [#26](https://github.com/jodoy/BetStats/pull/26), draft; no automatic merge.
