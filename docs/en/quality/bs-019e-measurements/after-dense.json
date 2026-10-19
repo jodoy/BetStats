@@ -1,0 +1,20 @@
+[
+  {
+    "Report": "Dashboard_DenseFrozenPage",
+    "ActualRecords": 10,
+    "SqlCommands": 588,
+    "RawReads": 10,
+    "Milliseconds": 818.8015,
+    "AllocatedBytes": 36436896,
+    "SetupSeconds": 30.7942843
+  },
+  {
+    "Report": "Dashboard_DenseFrozenPage",
+    "ActualRecords": 100,
+    "SqlCommands": 5811,
+    "RawReads": 100,
+    "Milliseconds": 8014.6488,
+    "AllocatedBytes": 349195432,
+    "SetupSeconds": 271.3518904
+  }
+]

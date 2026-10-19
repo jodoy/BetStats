@@ -1,0 +1,32 @@
+[
+  {
+    "Report": "Quality_Unreviewed",
+    "RequestedRecords": 100,
+    "ActualRecords": 100,
+    "SqlCommands": 23,
+    "RawReads": 0,
+    "Milliseconds": 377.8531,
+    "ProcessAllocatedBytes": 11821336,
+    "SetupMilliseconds": 15741.1838
+  },
+  {
+    "Report": "Coverage_UnreviewedPartial",
+    "RequestedRecords": 100,
+    "ActualRecords": 102,
+    "SqlCommands": 55,
+    "RawReads": 0,
+    "Milliseconds": 222.8054,
+    "ProcessAllocatedBytes": 22729600,
+    "SetupMilliseconds": 15011.0924
+  },
+  {
+    "Report": "Dashboard_SparseFrozenPage",
+    "RequestedRecords": 100,
+    "ActualRecords": 1,
+    "SqlCommands": 66,
+    "RawReads": 1,
+    "Milliseconds": 145.2005,
+    "ProcessAllocatedBytes": 6726448,
+    "SetupMilliseconds": 7570.0902
+  }
+]

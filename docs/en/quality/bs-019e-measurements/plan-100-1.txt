@@ -1,0 +1,19 @@
+Sort  (cost=837.32..837.57 rows=100 width=432) (actual time=0.096..0.097 rows=1 loops=1)
+  Sort Key: r."EventId", r."ProviderIdentityId", r."Version"
+  Sort Method: quicksort  Memory: 25kB
+  Buffers: shared hit=3
+  ->  Nested Loop  (cost=8.32..834.00 rows=100 width=432) (actual time=0.089..0.090 rows=1 loops=1)
+        Buffers: shared hit=3
+        ->  Function Scan on jsonb_array_elements_text event_id  (cost=0.00..1.00 rows=100 width=32) (actual time=0.009..0.010 rows=1 loops=1)
+        ->  Limit  (cost=8.31..8.32 rows=1 width=432) (actual time=0.077..0.078 rows=1 loops=1)
+              Buffers: shared hit=3
+              ->  Sort  (cost=8.31..8.32 rows=1 width=432) (actual time=0.077..0.077 rows=1 loops=1)
+                    Sort Key: r."ProviderIdentityId", r."Version"
+                    Sort Method: quicksort  Memory: 25kB
+                    Buffers: shared hit=3
+                    ->  Index Scan using "IX_Results_EventId_AvailableAtUtc_RecordedAtUtc" on "Results" r  (cost=0.28..8.30 rows=1 width=432) (actual time=0.028..0.029 rows=1 loops=1)
+                          Index Cond: (("EventId" = (event_id.value)::uuid) AND ("AvailableAtUtc" <= '2026-10-19 11:18:25.531914+00'::timestamp with time zone) AND ("RecordedAtUtc" <= '2026-10-19 11:18:25.531914+00'::timestamp with time zone))
+                          Filter: (("CompetitionId" = 'b23c4d17-82e8-4c5d-bcba-af1053c58657'::uuid) AND ("SeasonId" = '8918977a-f813-47ca-8a9f-1d4287d5e5ec'::uuid))
+                          Buffers: shared hit=3
+Planning Time: 0.187 ms
+Execution Time: 0.168 ms
