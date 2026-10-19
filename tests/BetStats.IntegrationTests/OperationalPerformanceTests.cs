@@ -30,7 +30,7 @@ public sealed class OperationalPerformanceTests(PostgreSqlFixture fixture, ITest
     }
     private sealed class Window { public int RawReads; }
     private static readonly AsyncLocal<Window?> Measuring = new();
-    private sealed record Sample(string Report, int RequestedRecords, int ActualRecords, int SqlCommands, int RawReads, double Milliseconds);
+    private sealed record Sample(string Report, int RequestedRecords, int ActualRecords, int SqlCommands, int RawReads, double Milliseconds, long ProcessAllocatedBytes, double SetupMilliseconds);
     private static string Csv(int size) => "Div,Date,HomeTeam,AwayTeam,FTR,MatchId\n" + string.Concat(Enumerable.Range(1, size).Select(i =>
         $"FICT,02/01/2026,Amber Comets,Cobalt Owls,H,measurement-{i}\n"));
     [Theory]
@@ -45,20 +45,24 @@ public sealed class OperationalPerformanceTests(PostgreSqlFixture fixture, ITest
             foreach (var tag in tags) if (tag.Key == "category" && Equals(tag.Value, "raw_read")) Interlocked.Add(ref window.RawReads, checked((int)value));
         }); listener.Start();
         var samples = new List<Sample>();
-        async Task Measure(string name, Commands commands, Func<Task<int>> read)
+        async Task Measure(string name, Commands commands, double setupMilliseconds, Func<Task<int>> read)
         {
             var before = commands.Count; var window = new Window(); Measuring.Value = window;
+            var allocated = GC.GetTotalAllocatedBytes(true);
             var timer = Stopwatch.StartNew(); int actual;
             try { actual = await read(); } finally { Measuring.Value = null; }
-            samples.Add(new(name, size, actual, commands.Count - before, window.RawReads, timer.Elapsed.TotalMilliseconds));
+            samples.Add(new(name, size, actual, commands.Count - before, window.RawReads, timer.Elapsed.TotalMilliseconds, GC.GetTotalAllocatedBytes(true) - allocated, setupMilliseconds));
         }
+        var setup = Stopwatch.StartNew();
         var qualityCommands = new Commands();
         await using (var s = await new QualityWorkflowTests(fixture).Create(fixture.CreateContext(qualityCommands)))
         {
             var imported = await s.Import(Csv(size));
-            await Measure("Quality_Unreviewed", qualityCommands, async () => (await new QualityReports(s.Db, s.Gate).ReadAsync(imported.AttemptId)).Total);
+            await Measure("Quality_Unreviewed", qualityCommands, setup.Elapsed.TotalMilliseconds, async () => (await new QualityReports(s.Db, s.Gate).ReadAsync(imported.AttemptId)).Total);
             Assert.Equal(size, samples[^1].ActualRecords);
+            Assert.InRange(samples[^1].SqlCommands, 1, 150);
         }
+        setup.Restart();
         var coverageCommands = new Commands();
         await using (var s = await new CoverageWorkflowTests(fixture).Create(fixture.CreateContext(coverageCommands)))
         {
@@ -66,14 +70,18 @@ public sealed class OperationalPerformanceTests(PostgreSqlFixture fixture, ITest
                 new(s.Definition.CompetitionReference, s.Definition.SeasonReference), new(new(100,1000,1,TimeSpan.FromSeconds(30)), TimeProvider.System));
             var claim = await s.Claim(s.Scope(), CoverageStatus.Partial); var query = s.Query(s.Scope(), await s.Now());
             Assert.True(claim.SupportingObservationIds.Length >= size);
-            await Measure("Coverage_UnreviewedPartial", coverageCommands, async () => (await s.Coverage.ReportAsync(query)).Items.Sum(i => i.Evidence.SupportingObservationIds.Length));
+            await Measure("Coverage_UnreviewedPartial", coverageCommands, setup.Elapsed.TotalMilliseconds, async () => (await s.Coverage.ReportAsync(query)).Items.Sum(i => i.Evidence.SupportingObservationIds.Length));
+            Assert.InRange(samples[^1].SqlCommands, 1, 150);
         }
+        setup.Restart();
         var dashboardCommands = new Commands();
         await using (var s = await new ResultOperationsWorkflowTests(fixture).Create(true, configure: services => services.AddDbContext<BetStatsDbContext>(o => o.AddInterceptors(dashboardCommands))))
         {
             _ = await BacktestWorkflowTests.Definition(s);
             var query = await s.Query();
-            await Measure("Dashboard_SparseFrozenPage", dashboardCommands, async () => (await s.Get<IDashboardQueries>().FixturesAsync(new() { Competition = query.CompetitionId, Season = query.SeasonId, Limit = size })).Items.Count);
+            await Measure("Dashboard_SparseFrozenPage", dashboardCommands, setup.Elapsed.TotalMilliseconds, async () => (await s.Get<IDashboardQueries>().FixturesAsync(new() { Competition = query.CompetitionId, Season = query.SeasonId, Limit = size })).Items.Count);
+            Assert.InRange(samples[^1].SqlCommands, 1, 300);
+            Assert.InRange(samples[^1].RawReads, 1, 1);
         }
         var json = JsonSerializer.Serialize(samples, new JsonSerializerOptions { WriteIndented = true }); output.WriteLine(json);
         var root = new DirectoryInfo(AppContext.BaseDirectory); while (root is not null && !File.Exists(Path.Combine(root.FullName, "BetStats.slnx"))) root = root.Parent;

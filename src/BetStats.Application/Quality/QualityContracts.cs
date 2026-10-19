@@ -30,7 +30,17 @@ public interface IDataReconciliation
 }
 public sealed record EligibilityQuery(Guid ObservationId, DateTime AsOfUtc, DataPurpose Purpose, UsageContext Context,
     DatasetMode Mode = DatasetMode.HistoricalAsKnown, DateTime? ReconstructionAtUtc = null);
-public interface IAnalyticalQualityGate { Task<QualityGateResult> EvaluateAsync(EligibilityQuery query, CancellationToken token = default); }
+public interface IAnalyticalQualityGate
+{
+    Task<QualityGateResult> EvaluateAsync(EligibilityQuery query, CancellationToken token = default);
+    async Task<IReadOnlyList<QualityGateResult>> EvaluateManyAsync(IReadOnlyList<EligibilityQuery> queries, CancellationToken token = default)
+    {
+        if (queries.Count > 100) throw new ArgumentException("Eligibility batch exceeds 100.");
+        var results = new List<QualityGateResult>();
+        foreach (var query in queries) results.Add(await EvaluateAsync(query, token));
+        return results;
+    }
+}
 public sealed record QualityReport(Guid ExecutionId, int Total, int Valid, int Invalid, int Duplicates, int Unresolved, int Conflicts,
     int Accepted, int Rejected, int Eligible, double ValidationPassRate, double IdentityResolutionRate, double ConflictRate,
     double AnalyticalEligibilityRate, IReadOnlyList<string> RuleVersions, DateTime? AssessedAtUtc, IReadOnlyList<Guid> PolicyIds, int PayloadFailures = 0);
