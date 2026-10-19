@@ -1,9 +1,10 @@
 [CmdletBinding()]
-param([ValidateSet('Fast','Integration','Migration','Security','Full')][string]$Suite='Fast', [switch]$NoBuild)
+param([ValidateSet('Fast','Integration','Migration','Security','Full')][string]$Suite='Fast', [switch]$NoBuild, [switch]$BuildOnly)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
+    if ($NoBuild -and $BuildOnly) { throw 'BuildOnly and NoBuild cannot be combined.' }
     function Get-ArtifactState {
         param([switch]$InputsOnly)
         $files = @(
@@ -40,6 +41,7 @@ try {
             throw 'Compiled artifacts are missing, changed or stale. Run eng/test.ps1 without -NoBuild.'
         }
     }
+    if ($BuildOnly) { return }
     $projects = switch ($Suite) {
         Fast { @('BetStats.UnitTests','BetStats.ArchitectureTests') }
         Integration { @('BetStats.IntegrationTests') }

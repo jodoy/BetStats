@@ -9,6 +9,7 @@ PowerShell 7 + .NET 10; Docker required for PostgreSQL sets.
 ./eng/test.ps1 -Suite Migration
 ./eng/test.ps1 -Suite Security
 ./eng/test.ps1 -Suite Full
+./eng/test.ps1 -BuildOnly          # CI: restore, build and record freshness stamp
 ```
 
 Default performs locked restore + Release build first. `-NoBuild` is only for an
@@ -17,6 +18,8 @@ inputs and BetStats test/application output files. NoBuild rejects a missing sta
 changed sources or changed/missing binaries; run once without NoBuild to refresh
 it after an external build. Tests use both `--no-build` and `--no-restore`.
 The runner also rejects inputs changed during compilation.
+CI uses BuildOnly before dependency auditing and Full/NoBuild; an ordinary external
+dotnet build does not produce the runner stamp. BuildOnly cannot combine with NoBuild.
 Fast selects unit and architecture projects (no
 Docker); Integration selects integration cases excluding Category=Migration;
 Migration selects that category; Security selects Category=Security across all

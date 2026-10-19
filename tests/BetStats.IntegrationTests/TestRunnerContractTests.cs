@@ -11,6 +11,7 @@ public sealed class TestRunnerContractTests
     [InlineData("source", false)]
     [InlineData("binary", false)]
     [InlineData("missing", false)]
+    [InlineData("buildonly", true)]
     public async Task Runner_rejects_empty_selection_propagates_failures_and_full_selects_three_projects_once(string mode, bool success)
     {
         var repository = new DirectoryInfo(AppContext.BaseDirectory);
@@ -43,7 +44,11 @@ public sealed class TestRunnerContractTests
                     '<TestRun><ResultSummary><Counters total="'+$count+'" passed="'+$count+'" failed="0" notExecuted="0" /></ResultSummary></TestRun>' | Set-Content (Join-Path $directory $filename)
                     $global:LASTEXITCODE=0
                 }
-                & "$PSScriptRoot/eng/test.ps1" -Suite Full
+                if ('{{mode}}' -eq 'buildonly') {
+                    & "$PSScriptRoot/eng/test.ps1" -BuildOnly
+                    if ($global:runnerCalls.Count -ne 0) { exit 10 }
+                    & "$PSScriptRoot/eng/test.ps1" -Suite Full -NoBuild
+                } else { & "$PSScriptRoot/eng/test.ps1" -Suite Full }
                 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
                 if ('{{mode}}' -in @('source','binary','missing')) {
                     if ('{{mode}}' -eq 'source') { 'changed' | Set-Content "$PSScriptRoot/src/Changed.cs" }
@@ -52,7 +57,7 @@ public sealed class TestRunnerContractTests
                     if ('{{mode}}' -eq 'missing') { Remove-Item -LiteralPath $binary }
                     & "$PSScriptRoot/eng/test.ps1" -Suite Full -NoBuild
                 }
-                if ('{{mode}}' -eq 'full' -and ($global:runnerCalls.Count -ne 3 -or @($global:runnerCalls | Select-Object -Unique).Count -ne 3)) { exit 9 }
+                if ('{{mode}}' -in @('full','buildonly') -and ($global:runnerCalls.Count -ne 3 -or @($global:runnerCalls | Select-Object -Unique).Count -ne 3)) { exit 9 }
                 "calls=$($global:runnerCalls.Count)"
                 """;
             var path = Path.Combine(root, "mock.ps1"); await File.WriteAllTextAsync(path, script);
