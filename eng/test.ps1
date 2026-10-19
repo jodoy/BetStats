@@ -4,11 +4,41 @@ $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent
 Push-Location $root
 try {
+    function Get-ArtifactState {
+        param([switch]$InputsOnly)
+        $files = @(
+            Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Extension -in '.props','.targets','.json','.config','.slnx' }
+            foreach ($directory in @('src','tests','eng')) {
+                Get-ChildItem -LiteralPath (Join-Path $root $directory) -Recurse -File |
+                    Where-Object { $_.FullName -notmatch '[\\/](bin|obj|node_modules)[\\/]' }
+            }
+            foreach ($project in @('BetStats.UnitTests','BetStats.ArchitectureTests','BetStats.IntegrationTests')) {
+                if ($InputsOnly) { continue }
+                $binary=Join-Path $root "tests/$project/bin/Release/net10.0/$project.dll"
+                if (!(Test-Path -LiteralPath $binary)) { throw "Missing compiled artifact: $project. Run without -NoBuild." }
+                Get-ChildItem -LiteralPath (Split-Path $binary -Parent) -File | Where-Object { $_.Name -like 'BetStats.*' }
+            }
+        )
+        $lines = foreach ($file in ($files | Sort-Object FullName -Unique)) {
+            $file.FullName.Substring($root.Length) + ':' + (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        }
+        $bytes=[Text.Encoding]::UTF8.GetBytes(($lines -join "`n"))
+        [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes))
+    }
+    $stamp=Join-Path $root 'artifacts/tests/release-artifact-state.txt'
     if (!$NoBuild) {
+        $inputsBefore=Get-ArtifactState -InputsOnly
         dotnet restore BetStats.slnx --locked-mode
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         dotnet build BetStats.slnx -c Release --no-restore
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        if ($inputsBefore -ne (Get-ArtifactState -InputsOnly)) { throw 'Build inputs changed during compilation. Rebuild before running tests.' }
+        New-Item -ItemType Directory -Path (Split-Path $stamp -Parent) -Force | Out-Null
+        Get-ArtifactState | Set-Content -LiteralPath $stamp -Encoding utf8
+    } else {
+        if (!(Test-Path -LiteralPath $stamp) -or (Get-Content -LiteralPath $stamp -Raw).Trim() -ne (Get-ArtifactState)) {
+            throw 'Compiled artifacts are missing, changed or stale. Run eng/test.ps1 without -NoBuild.'
+        }
     }
     $projects = switch ($Suite) {
         Fast { @('BetStats.UnitTests','BetStats.ArchitectureTests') }
@@ -22,7 +52,7 @@ try {
     $timer=[Diagnostics.Stopwatch]::StartNew()
     $total=0; $passed=0; $failed=0; $skipped=0
     foreach ($project in $projects) {
-        $arguments=@('test',"tests/$project",'-c','Release','--no-build','--logger',"trx;LogFileName=$project.trx",'--results-directory',$destination)
+        $arguments=@('test',"tests/$project",'-c','Release','--no-build','--no-restore','--logger',"trx;LogFileName=$project.trx",'--results-directory',$destination)
         if ($filter) { $arguments+=@('--filter',$filter) }
         & dotnet @arguments
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

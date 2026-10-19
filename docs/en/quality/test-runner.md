@@ -12,7 +12,12 @@ PowerShell 7 + .NET 10; Docker required for PostgreSQL sets.
 ```
 
 Default performs locked restore + Release build first. `-NoBuild` is only for an
-already built exact revision. Fast selects unit and architecture projects (no
+already built exact revision. A successful runner build records SHA-256 of build
+inputs and BetStats test/application output files. NoBuild rejects a missing stamp,
+changed sources or changed/missing binaries; run once without NoBuild to refresh
+it after an external build. Tests use both `--no-build` and `--no-restore`.
+The runner also rejects inputs changed during compilation.
+Fast selects unit and architecture projects (no
 Docker); Integration selects integration cases excluding Category=Migration;
 Migration selects that category; Security selects Category=Security across all
 three projects. Categories may overlap. Full executes each project once without

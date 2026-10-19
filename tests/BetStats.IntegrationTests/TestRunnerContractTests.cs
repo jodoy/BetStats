@@ -8,6 +8,9 @@ public sealed class TestRunnerContractTests
     [InlineData("zero", false)]
     [InlineData("failure", false)]
     [InlineData("full", true)]
+    [InlineData("source", false)]
+    [InlineData("binary", false)]
+    [InlineData("missing", false)]
     public async Task Runner_rejects_empty_selection_propagates_failures_and_full_selects_three_projects_once(string mode, bool success)
     {
         var repository = new DirectoryInfo(AppContext.BaseDirectory);
@@ -15,6 +18,12 @@ public sealed class TestRunnerContractTests
         Assert.NotNull(repository);
         var root = Path.Combine(Path.GetTempPath(), "betstats-runner-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(root, "eng"));
+        Directory.CreateDirectory(Path.Combine(root, "src"));
+        foreach (var project in new[] { "BetStats.UnitTests", "BetStats.ArchitectureTests", "BetStats.IntegrationTests" })
+        {
+            var binary = Path.Combine(root, "tests", project, "bin", "Release", "net10.0", project + ".dll");
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!); await File.WriteAllTextAsync(binary, "mock compiled artifact");
+        }
         try
         {
             File.Copy(Path.Combine(repository.FullName, "eng", "test.ps1"), Path.Combine(root, "eng", "test.ps1"));
@@ -24,8 +33,9 @@ public sealed class TestRunnerContractTests
                 $ErrorActionPreference='Stop'
                 $global:runnerCalls=@()
                 function global:dotnet {
-                    $global:runnerCalls += $args[1]
                     if ('{{mode}}' -eq 'failure') { $global:LASTEXITCODE=7; return }
+                    if ($args[0] -ne 'test') { $global:LASTEXITCODE=0; return }
+                    $global:runnerCalls += $args[1]
                     $directory=$args[[Array]::IndexOf($args,'--results-directory')+1]
                     $logger=$args[[Array]::IndexOf($args,'--logger')+1]
                     $filename=$logger.Split('=')[1]
@@ -33,8 +43,15 @@ public sealed class TestRunnerContractTests
                     '<TestRun><ResultSummary><Counters total="'+$count+'" passed="'+$count+'" failed="0" notExecuted="0" /></ResultSummary></TestRun>' | Set-Content (Join-Path $directory $filename)
                     $global:LASTEXITCODE=0
                 }
-                & "$PSScriptRoot/eng/test.ps1" -Suite Full -NoBuild
+                & "$PSScriptRoot/eng/test.ps1" -Suite Full
                 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+                if ('{{mode}}' -in @('source','binary','missing')) {
+                    if ('{{mode}}' -eq 'source') { 'changed' | Set-Content "$PSScriptRoot/src/Changed.cs" }
+                    $binary="$PSScriptRoot/tests/BetStats.UnitTests/bin/Release/net10.0/BetStats.UnitTests.dll"
+                    if ('{{mode}}' -eq 'binary') { 'changed' | Set-Content $binary }
+                    if ('{{mode}}' -eq 'missing') { Remove-Item -LiteralPath $binary }
+                    & "$PSScriptRoot/eng/test.ps1" -Suite Full -NoBuild
+                }
                 if ('{{mode}}' -eq 'full' -and ($global:runnerCalls.Count -ne 3 -or @($global:runnerCalls | Select-Object -Unique).Count -ne 3)) { exit 9 }
                 "calls=$($global:runnerCalls.Count)"
                 """;
