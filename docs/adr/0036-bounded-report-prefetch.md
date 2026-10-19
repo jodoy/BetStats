@@ -11,3 +11,8 @@ Do not cache successful authorization across reads. Do not change temporal
 predicates, classification priority, limits, pagination or RAW SHA-256 validation.
 Missing evidence must continue to fail closed. Avoid new indexes until PostgreSQL
 EXPLAIN evidence demonstrates a benefit.
+
+When a snapshot inspection transaction spans multiple manifests, acquire all
+evidence source locks in one global source-ID order before authorizing any
+manifest. Per-manifest ordering is insufficient for reversed overlapping batches.
+Keep the caller's snapshot/result ordering independent of lock acquisition order.

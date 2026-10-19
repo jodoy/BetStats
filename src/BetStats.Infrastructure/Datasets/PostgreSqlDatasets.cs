@@ -303,11 +303,16 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
         await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
         var artifacts = await db.DatasetArtifacts.AsNoTracking().Where(a => keys.Contains(a.Id)).ToDictionaryAsync(a => a.Id, token);
         if (artifacts.Count != keys.Length) throw new InvalidOperationException("Snapshot missing.");
+        var manifests = keys.ToDictionary(id => id, id => ParseManifest(artifacts[id]));
+        // The transaction spans the entire batch, so source ordering must also
+        // span the batch. Per-manifest ordering can deadlock reversed pages.
+        foreach (var source in manifests.Values.SelectMany(Evidence).Select(e => e.SourceId).Distinct().Order())
+            await QualityPersistence.Lock(db, source, token);
         var snapshots = new List<DatasetSnapshot>();
         foreach (var id in keys)
         {
-            var artifact = artifacts[id]; var manifest = ParseManifest(artifact);
-            await Authorize(manifest, true, token);
+            var artifact = artifacts[id]; var manifest = manifests[id];
+            await Authorize(manifest, false, token);
             if (CanonicalDatasetJson.Hash(artifact.Content) != artifact.ManifestHash) throw new InvalidDataException("Artifact hash mismatch.");
             snapshots.Add(new(id, artifact.ManifestHash, artifact.BuiltAtUtc, artifact.RecordedAtUtc, manifest));
         }

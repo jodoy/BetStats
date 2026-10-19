@@ -10,11 +10,71 @@ using BetStats.Domain.Observations;
 using BetStats.Infrastructure.Ingestion;
 using BetStats.Infrastructure.Quality;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using System.Data.Common;
 
 namespace BetStats.IntegrationTests;
 
 public sealed class ReportBatchingTests(PostgreSqlFixture fixture) : IClassFixture<PostgreSqlFixture>
 {
+    private sealed class LockOrder(bool left, TaskCompletionSource<bool> leftLocked, TaskCompletionSource<bool> rightEntered) : DbCommandInterceptor
+    {
+        public bool Enabled;
+        public Guid FirstSource;
+        private int locks;
+        private Guid first;
+        private static bool SourceLock(DbCommand command) => command.CommandText.Contains("FOR UPDATE", StringComparison.Ordinal) && command.CommandText.Contains("\"DataSources\"", StringComparison.Ordinal);
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData data, InterceptionResult<int> result, CancellationToken token = default)
+        {
+            if (Enabled && SourceLock(command) && Interlocked.Increment(ref locks) == 1)
+            {
+                first = (Guid)command.Parameters[0].Value!;
+                // If both batches request the same first source, release the
+                // left reader before the right reader waits on that row lock.
+                if (!left && first == FirstSource) rightEntered.TrySetResult(true);
+            }
+            return ValueTask.FromResult(result);
+        }
+        public override async ValueTask<int> NonQueryExecutedAsync(DbCommand command, CommandExecutedEventData data, int result, CancellationToken token = default)
+        {
+            if (Enabled && SourceLock(command) && locks == 1)
+            {
+                if (left) { leftLocked.TrySetResult(true); await rightEntered.Task.WaitAsync(token); }
+                else if (first != FirstSource) rightEntered.TrySetResult(true);
+            }
+            return result;
+        }
+    }
+    [Fact]
+    public async Task Reversed_snapshot_batches_use_one_global_source_lock_order()
+    {
+        var leftLocked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rightEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leftLocks = new LockOrder(true, leftLocked, rightEntered); var rightLocks = new LockOrder(false, leftLocked, rightEntered);
+        await using var left = await new ResultOperationsWorkflowTests(fixture).Create(true, configure: services => services.AddDbContext<BetStats.Infrastructure.Persistence.BetStatsDbContext>(o => o.AddInterceptors(leftLocks)));
+        await using var right = await new ResultOperationsWorkflowTests(fixture).Create(true, configure: services => services.AddDbContext<BetStats.Infrastructure.Persistence.BetStatsDbContext>(o => o.AddInterceptors(rightLocks)));
+        async Task<Guid> Snapshot(ResultOperationsWorkflowTests.Scenario scenario)
+        {
+            var before = await scenario.Db.DatasetArtifacts.Select(a => a.Id).ToArrayAsync();
+            _ = await BacktestWorkflowTests.Definition(scenario);
+            return await scenario.Db.DatasetArtifacts.Where(a => !before.Contains(a.Id)).Select(a => a.Id).SingleAsync();
+        }
+        var leftId = await Snapshot(left); var rightId = await Snapshot(right);
+        var ids = new[] { (left.Source, leftId), (right.Source, rightId) }.OrderBy(x => x.Source).Select(x => x.Item2).ToArray();
+        leftLocks.FirstSource = rightLocks.FirstSource = new[] { left.Source, right.Source }.Order().First();
+        leftLocks.Enabled = rightLocks.Enabled = true;
+        using var leftScope = left.Provider.CreateScope(); using var rightScope = right.Provider.CreateScope();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            var first = leftScope.ServiceProvider.GetRequiredService<IDatasets>().InspectManyAsync(ids, timeout.Token);
+            await leftLocked.Task.WaitAsync(timeout.Token);
+            var second = rightScope.ServiceProvider.GetRequiredService<IDatasets>().InspectManyAsync(ids.Reverse().ToArray(), timeout.Token);
+            var reports = await Task.WhenAll(first, second);
+            Assert.Equal(ids, reports[0].Select(s => s.Id)); Assert.Equal(ids.Reverse(), reports[1].Select(s => s.Id));
+        }
+        finally { await timeout.CancelAsync(); }
+    }
     [Fact]
     public async Task Result_batch_preserves_individual_reports_and_observes_next_read_revocation()
     {
