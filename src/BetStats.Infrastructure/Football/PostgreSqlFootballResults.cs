@@ -13,6 +13,7 @@ using BetStats.Infrastructure.Persistence;
 using BetStats.Infrastructure.Quality;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
+using BetStats.Infrastructure.Persistence.Entities;
 
 namespace BetStats.Infrastructure.Football;
 
@@ -20,7 +21,44 @@ public sealed class PostgreSqlFootballResults(BetStatsDbContext db, IRawPayloadS
     ISourcePolicyEvaluator policies, ISourceOperationalStatus sources, IAnalyticalQualityGate gate) : IFootballResults
 {
     private static void Utc(DateTime t) { if (t.Kind != DateTimeKind.Utc || t.Ticks % 10 != 0) throw new ArgumentException("UTC microsecond cutoff required."); }
-    public async Task<FootballResultReport> ReadAsync(FootballResultQuery q, CancellationToken token = default)
+    public Task<FootballResultReport> ReadAsync(FootballResultQuery q, CancellationToken token = default) => ReadCoreAsync(q, token);
+    public Task<IReadOnlyList<FootballResultReport>> ReadManyAsync(IReadOnlyList<FootballResultQuery> queries, CancellationToken token = default) => ReadManyAsync(queries, new RawReadSession(), token);
+    public async Task<IReadOnlyList<FootballResultReport>> ReadManyAsync(IReadOnlyList<FootballResultQuery> queries, RawReadSession session, CancellationToken token = default)
+    {
+        if (queries.Count > 100) throw new ArgumentException("Result batch exceeds 100.");
+        var reports = new List<FootballResultReport>();
+        var parsed = new Dictionary<(Guid, FootballImportScope), FootballParseResult>();
+        // Bounds remain per event. A season-wide Take(1001) would silently change
+        // the individual query contract when the page contains many events.
+        foreach (var batch in queries.Chunk(25))
+        {
+            var history = new Dictionary<FootballResultQuery, IReadOnlyList<FootballResultObservation>>();
+            foreach (var group in batch.Where(q => q.EventId is not null).GroupBy(q => (q.CompetitionId, q.SeasonId, q.AsOfUtc)))
+            {
+                var events = System.Text.Json.JsonSerializer.Serialize(group.Select(q => q.EventId).Distinct());
+                var rows = await db.FootballResults.FromSqlInterpolated($"""
+                    SELECT r.* FROM jsonb_array_elements_text({events}::jsonb) event_id
+                    CROSS JOIN LATERAL (
+                        SELECT r.* FROM football."Results" r
+                        WHERE r."CompetitionId" = {group.Key.CompetitionId} AND r."SeasonId" = {group.Key.SeasonId}
+                          AND r."EventId" = event_id::uuid AND r."AvailableAtUtc" <= {group.Key.AsOfUtc} AND r."RecordedAtUtc" <= {group.Key.AsOfUtc}
+                        ORDER BY r."EventId", r."ProviderIdentityId", r."Version" LIMIT 1001
+                    ) r ORDER BY r."EventId", r."ProviderIdentityId", r."Version"
+                    """).AsNoTracking().ToListAsync(token);
+                var byEvent = rows.ToLookup(r => r.EventId);
+                foreach (var q in group) history[q] = byEvent[q.EventId!.Value].ToArray();
+            }
+            var metadata = new Dictionary<Guid, RawPayload>();
+            foreach (var ids in history.Values.SelectMany(r => r).Select(r => r.RawId).Distinct().Chunk(1000))
+                foreach (var raw in await db.RawPayloads.AsNoTracking().Where(r => ids.Contains(r.Id)).ToListAsync(token)) metadata.Add(raw.Id, raw);
+            foreach (var q in batch)
+                reports.Add(await ReadCoreAsync(q, token, history.GetValueOrDefault(q), q.EventId is null ? null : metadata, parsed, session));
+        }
+        return reports;
+    }
+    private async Task<FootballResultReport> ReadCoreAsync(FootballResultQuery q, CancellationToken token,
+        IReadOnlyList<FootballResultObservation>? prefetched = null, IReadOnlyDictionary<Guid, RawPayload>? metadata = null,
+        Dictionary<(Guid, FootballImportScope), FootballParseResult>? parsedCache = null, RawReadSession? session = null)
     {
         Utc(q.AsOfUtc); var knowledge = q.ReconstructionAtUtc ?? q.AsOfUtc; Utc(knowledge);
         if (q.CompetitionId == Guid.Empty || q.SeasonId == Guid.Empty || q.Context is null || !Enum.IsDefined(q.Mode) ||
@@ -28,7 +66,7 @@ public sealed class PostgreSqlFootballResults(BetStatsDbContext db, IRawPayloadS
             q.Mode == DatasetMode.HistoricalAsKnown && q.ReconstructionAtUtc is not null ||
             q.Mode == DatasetMode.RetrospectiveReconstruction && (q.ReconstructionAtUtc is null || knowledge < q.AsOfUtc) ||
             knowledge > await QualityPersistence.Now(db, token)) throw new ArgumentException("Explicit valid result scope and knowledge cutoffs required.");
-        var all = await db.FootballResults.AsNoTracking().Where(r => r.CompetitionId == q.CompetitionId && r.SeasonId == q.SeasonId &&
+        var all = prefetched ?? await db.FootballResults.AsNoTracking().Where(r => r.CompetitionId == q.CompetitionId && r.SeasonId == q.SeasonId &&
             (q.EventId == null || r.EventId == q.EventId) && r.AvailableAtUtc <= q.AsOfUtc && r.RecordedAtUtc <= q.AsOfUtc)
             .OrderBy(r => r.EventId).ThenBy(r => r.ProviderIdentityId).ThenBy(r => r.Version).Take(1001).ToListAsync(token);
         if (all.Count > 1000) throw new InvalidOperationException("Result history exceeds 1000 observations; narrow scope.");
@@ -40,7 +78,8 @@ public sealed class PostgreSqlFootballResults(BetStatsDbContext db, IRawPayloadS
             var reasons = new SortedSet<string>(StringComparer.Ordinal); var decisions = new List<Guid>(); var frozen = new List<DatasetFrozenRecord>();
             void Freeze<T>(string kind, Guid id, T value) => frozen.Add(new(kind, id, Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(value))));
             Freeze("football-result-v1", r.Id, r);
-            var raw = await db.RawPayloads.AsNoTracking().SingleAsync(x => x.Id == r.RawId, token);
+            var raw = metadata is null ? await db.RawPayloads.AsNoTracking().SingleAsync(x => x.Id == r.RawId, token) :
+                metadata.TryGetValue(r.RawId, out var foundRaw) ? foundRaw : throw new InvalidOperationException("Result RAW missing.");
             Freeze("raw", raw.Id, raw);
             try
             {
@@ -51,9 +90,15 @@ public sealed class PostgreSqlFootballResults(BetStatsDbContext db, IRawPayloadS
                 if (raw.ByteLength is not { } length) reasons.Add("result_raw_length_missing");
                 else
                 {
-                    var parsed = new FootballFixtureParser().ParseProfile(await storage.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token), scope,
-                        raw.ExternalReference == "fixture:" + ApiFootballFixtureAdapter.Profile ? ApiFootballFixtureAdapter.Profile :
-                        raw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version ? HistoricalFootballCsvParser.Version : FootballResultsCsvParser.Version, token);
+                    if (parsedCache is null || !parsedCache.TryGetValue((raw.Id, scope), out var parsed))
+                    {
+                        var payload = new StoredPayload(raw.StorageKey, raw.ContentHashSha256, length);
+                        var bytes = session is null ? await storage.ReadAsync(payload, token) : await session.ReadAsync(storage, payload, token);
+                        parsed = new FootballFixtureParser().ParseProfile(bytes, scope,
+                            raw.ExternalReference == "fixture:" + ApiFootballFixtureAdapter.Profile ? ApiFootballFixtureAdapter.Profile :
+                            raw.ExternalReference == "fixture:" + HistoricalFootballCsvParser.Version ? HistoricalFootballCsvParser.Version : FootballResultsCsvParser.Version, token);
+                        if (parsedCache is { Count: < 16 }) parsedCache.Add((raw.Id, scope), parsed);
+                    }
                     var row = parsed.Records.SingleOrDefault(x => x.MatchReference == r.SourceEventReference);
                     if (row?.Result?.Value != r.Value || row.Result.PublishedAtUtc != r.PublishedAtUtc || row.MatchDate != r.EventDate) reasons.Add("result_raw_value_mismatch");
                     else
@@ -112,17 +157,28 @@ public sealed class PostgreSqlFootballResults(BetStatsDbContext db, IRawPayloadS
     {
         if (await sources.ReadAsync(source, token) != SourceOperationalStatus.Enabled) throw new UnauthorizedAccessException("Result source disabled.");
         var now = await QualityPersistence.Now(db, token);
-        foreach (var p in new[] { purpose, DataPurpose.InternalAnalytics, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention }.Distinct())
+        var purposes = new[] { purpose, DataPurpose.InternalAnalytics, DataPurpose.RawPayloadStorage, DataPurpose.HistoricalRetention }.Distinct().ToArray();
+        var decisions = new Dictionary<DateTime, IReadOnlyDictionary<DataPurpose, PolicyEvaluation>>();
+        foreach (var t in new[] { knowledge, now }.Distinct()) decisions.Add(t, await policies.EvaluateManyAsync(source, purposes, t, context, token));
+        var policyRows = new Dictionary<Guid, SourcePolicy>();
+        var auditRows = new Dictionary<(Guid, DateTime), PolicyAudit[]>();
+        foreach (var p in purposes)
         {
             foreach (var t in new[] { knowledge, now }.Distinct())
             {
-                var decision = await policies.EvaluateAsync(source, p, t, context, token);
+                var decision = decisions[t][p];
                 if (!decision.Allowed || decision.Restrictions.Any(r => r.MaximumRetentionDays is { } days && now - retrieved > TimeSpan.FromDays(days))) throw new UnauthorizedAccessException("Result usage denied.");
-                if (frozen is not null && decision.PolicyId is { } id)
+                if (frozen is not null && t == knowledge && decision.PolicyId is { } id)
                 {
-                    var policy = await db.SourcePolicies.AsNoTracking().Include(x => x.Permissions).SingleAsync(x => x.Id == id, token);
+                    if (!policyRows.TryGetValue(id, out var policy))
+                    {
+                        policy = await db.SourcePolicies.AsNoTracking().Include(x => x.Permissions).SingleAsync(x => x.Id == id, token); policyRows.Add(id, policy);
+                    }
                     // Freeze the exact available approval/revocation ledger, not future audits.
-                    var audits = await db.PolicyAudits.AsNoTracking().Where(x => x.SourcePolicyId == id && x.RecordedAtUtc <= t).OrderBy(x => x.Sequence).ToArrayAsync(token);
+                    if (!auditRows.TryGetValue((id, t), out var audits))
+                    {
+                        audits = await db.PolicyAudits.AsNoTracking().Where(x => x.SourcePolicyId == id && x.RecordedAtUtc <= t).OrderBy(x => x.Sequence).ToArrayAsync(token); auditRows.Add((id, t), audits);
+                    }
                     var content = new { policy.Id, policy.DataSourceId, policy.Version, policy.EffectiveFromUtc, policy.EffectiveToUtc, policy.TermsReference, policy.EvidenceReference, policy.RecordedAtUtc, Permissions = policy.Permissions.OrderBy(x => x.Purpose).ToArray(), Audits = audits, Purpose = p, KnowledgeUtc = t == now ? (DateTime?)null : t };
                     // Current authorization is a gate, not nondeterministic build-time evidence.
                     if (t == knowledge) frozen.Add(new("result-policy:" + p, id, Encoding.UTF8.GetString(CanonicalDatasetJson.Serialize(content))));

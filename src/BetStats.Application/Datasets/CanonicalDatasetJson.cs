@@ -40,7 +40,7 @@ public static class CanonicalDatasetJson
         }
     }
     public static T Deserialize<T>(byte[] bytes) => JsonSerializer.Deserialize<T>(bytes, Options) ?? throw new InvalidDataException("Missing artifact.");
-    public static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+    public static string Hash(ReadOnlySpan<byte> bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
     public static string Fingerprint<T>(T value) => Hash(Serialize(value));
     public static DatasetDefinition Normalize(DatasetDefinition definition) => definition with { Targets = definition.Targets.OrderBy(t => t.DateObservationId).ToArray() };
 }

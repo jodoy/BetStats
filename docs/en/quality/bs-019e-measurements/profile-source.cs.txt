@@ -1,0 +1,122 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using System.Reflection;
+using System.Text.Json;
+using BetStats.Application.Dashboard;
+using BetStats.IntegrationTests;
+using BetStats.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using System.Data.Common;
+using BetStats.Application.Datasets;
+using Npgsql;
+using BetStats.Infrastructure.Quality;
+using BetStats.Application.Quality;
+using BetStats.Application.Ingestion;
+
+await using var cleanup = new FixtureLifetime();
+await cleanup.Fixture.InitializeAsync();
+var commands = new ProbeCommands();
+long rawReads = 0;
+using var listener = new MeterListener();
+listener.InstrumentPublished = (instrument, l) => { if (instrument.Meter.Name == "BetStats.Operations" && instrument.Name == "betstats.operation.events") l.EnableMeasurementEvents(instrument); };
+listener.SetMeasurementEventCallback<long>((_, value, tags, _) => { foreach (var tag in tags) if (tag.Key == "category" && Equals(tag.Value, "raw_read")) Interlocked.Add(ref rawReads, value); }); listener.Start();
+var create = typeof(ResultOperationsWorkflowTests).GetMethod("Create", BindingFlags.Instance | BindingFlags.NonPublic)!;
+var definition = typeof(BacktestWorkflowTests).GetMethod("Definition", BindingFlags.Static | BindingFlags.NonPublic)!;
+var scenarios = new List<IAsyncDisposable>();
+var samples = new List<object>();
+var setup = Stopwatch.StartNew();
+try
+{
+    for (var i = 1; i <= 100; i++)
+    {
+        Action<IServiceCollection> configure = services => services.AddDbContext<BetStatsDbContext>(o => o.AddInterceptors(commands));
+        var task = (Task)create.Invoke(new ResultOperationsWorkflowTests(cleanup.Fixture), [true, null, configure])!;
+        await task; var scenario = task.GetType().GetProperty("Result")!.GetValue(task)!; scenarios.Add((IAsyncDisposable)scenario);
+        await (Task)definition.Invoke(null, [scenario, false, null])!;
+        if (i > 1)
+        {
+            var originalRoot = (string)scenario.GetType().GetProperty("Root")!.GetValue(scenario)!;
+            var sharedRoot = (string)scenarios[0].GetType().GetProperty("Root")!.GetValue(scenarios[0])!;
+            foreach (var file in Directory.EnumerateFiles(originalRoot, "*.raw")) File.Copy(file, Path.Combine(sharedRoot, Path.GetFileName(file)));
+        }
+        if (i is not (10 or 100)) continue;
+        Console.WriteLine("Synthetic frozen fixtures prepared: " + i);
+        var first = scenarios[0];
+        var scope = (IServiceScope)first.GetType().GetProperty("Scope")!.GetValue(first)!;
+        var queries = scope.ServiceProvider.GetRequiredService<IDashboardQueries>();
+        Console.WriteLine("Setup seconds (excluded): " + setup.Elapsed.TotalSeconds);
+        var before = commands.Count; rawReads = 0; commands.Capture = true;
+        var allocatedBefore = GC.GetTotalAllocatedBytes(true);
+        var watch = Stopwatch.StartNew(); var page = await queries.FixturesAsync(new(Limit: i)); watch.Stop();
+        var allocated = GC.GetTotalAllocatedBytes(true) - allocatedBefore; commands.Capture = false;
+        if (page.Items.Count != i) throw new InvalidOperationException("Dense page cardinality differs.");
+        samples.Add(new { Report = "Dashboard_DenseFrozenPage", ActualRecords = page.Items.Count, SqlCommands = commands.Count - before, RawReads = rawReads, Milliseconds = watch.Elapsed.TotalMilliseconds, AllocatedBytes = allocated, SetupSeconds = setup.Elapsed.TotalSeconds });
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "dense.json"), JsonSerializer.Serialize(samples, new JsonSerializerOptions { WriteIndented = true }));
+        Console.WriteLine(JsonSerializer.Serialize(samples[^1]));
+        var db = scope.ServiceProvider.GetRequiredService<BetStatsDbContext>();
+        foreach (var captured in commands.Plans.Take(3))
+        {
+            await db.Database.OpenConnectionAsync();
+            await using var explain = db.Database.GetDbConnection().CreateCommand();
+            explain.CommandText = "EXPLAIN (ANALYZE, BUFFERS) " + captured.Sql;
+            foreach (var parameter in captured.Parameters) explain.Parameters.Add(parameter.Clone());
+            await using var reader = await explain.ExecuteReaderAsync(); var plan = new List<string>();
+            while (await reader.ReadAsync()) plan.Add(reader.GetString(0));
+            await File.WriteAllLinesAsync(Path.Combine(AppContext.BaseDirectory, $"plan-{i}-{commands.Plans.IndexOf(captured)}.txt"), plan);
+        }
+        commands.Plans.Clear();
+        var materializeTimer = Stopwatch.StartNew(); var memoryBefore = GC.GetTotalAllocatedBytes(true);
+        var contents = await db.DatasetArtifacts.AsNoTracking().Select(a => a.Content).ToArrayAsync(); materializeTimer.Stop();
+        Console.WriteLine(JsonSerializer.Serialize(new { Stage = "EF_snapshot_content_materialization_including_IO", Records = contents.Length, Milliseconds = materializeTimer.Elapsed.TotalMilliseconds, AllocatedBytes = GC.GetTotalAllocatedBytes(true) - memoryBefore }));
+        memoryBefore = GC.GetTotalAllocatedBytes(true); var jsonTimer = Stopwatch.StartNew();
+        foreach (var content in contents) _ = CanonicalDatasetJson.Deserialize<DatasetManifest>(content);
+        jsonTimer.Stop(); Console.WriteLine(JsonSerializer.Serialize(new { Stage = "JSON_manifest_deserialization", Records = contents.Length, Milliseconds = jsonTimer.Elapsed.TotalMilliseconds, AllocatedBytes = GC.GetTotalAllocatedBytes(true) - memoryBefore }));
+    }
+}
+finally { foreach (var scenario in scenarios) await scenario.DisposeAsync(); }
+var qualityCreate = typeof(QualityWorkflowTests).GetMethod("Create", BindingFlags.Instance | BindingFlags.NonPublic)!;
+var qualityTask = (Task)qualityCreate.Invoke(new QualityWorkflowTests(cleanup.Fixture), [cleanup.Fixture.CreateContext(commands)])!;
+await qualityTask; var quality = qualityTask.GetType().GetProperty("Result")!.GetValue(qualityTask)!;
+await using (var lifetime = (IAsyncDisposable)quality)
+{
+    var db = (BetStatsDbContext)quality.GetType().GetProperty("Db")!.GetValue(quality)!;
+    var gate = (IAnalyticalQualityGate)quality.GetType().GetProperty("Gate")!.GetValue(quality)!;
+    var csv = "Div,Date,HomeTeam,AwayTeam,FTR,MatchId\n" + string.Concat(Enumerable.Range(1, 100).Select(i => $"FICT,02/01/2026,Amber Comets,Cobalt Owls,H,plan-{i}\n"));
+    var imported = await (Task<ImportReport>)quality.GetType().GetMethod("Import")!.Invoke(quality, [csv])!;
+    commands.Plans.Clear(); commands.Capture = true;
+    var report = await new QualityReports(db, gate).ReadAsync(imported.AttemptId); commands.Capture = false;
+    if (report.Total != 100) throw new InvalidOperationException("Quality cardinality mismatch.");
+    foreach (var captured in commands.Plans)
+    {
+        await db.Database.OpenConnectionAsync(); await using var explain = db.Database.GetDbConnection().CreateCommand();
+        explain.CommandText = "EXPLAIN (ANALYZE, BUFFERS) " + captured.Sql;
+        foreach (var parameter in captured.Parameters) explain.Parameters.Add(parameter.Clone());
+        await using var reader = await explain.ExecuteReaderAsync(); var plan = new List<string>();
+        while (await reader.ReadAsync()) plan.Add(reader.GetString(0));
+        await File.WriteAllLinesAsync(Path.Combine(AppContext.BaseDirectory, $"quality-plan-{commands.Plans.IndexOf(captured)}.txt"), plan);
+    }
+}
+sealed class FixtureLifetime : IAsyncDisposable
+{
+    public PostgreSqlFixture Fixture { get; } = new();
+    public async ValueTask DisposeAsync() => await Fixture.DisposeAsync();
+}
+sealed class ProbeCommands : DbCommandInterceptor
+{
+    public int Count;
+    public bool Capture;
+    public List<(string Sql, NpgsqlParameter[] Parameters)> Plans = [];
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData data, InterceptionResult<DbDataReader> result, CancellationToken token = default)
+    {
+        Count++;
+        if (Capture && Plans.Count < 3 && Plans.All(p => p.Sql != command.CommandText) && (command.CommandText.Contains("jsonb_array_elements") || command.CommandText.Contains("JOIN LATERAL") || command.CommandText.Contains("jsonb_to_recordset")))
+            Plans.Add((command.CommandText, command.Parameters.Cast<NpgsqlParameter>().Select(p => p.Clone()).ToArray()));
+        return ValueTask.FromResult(result);
+    }
+    public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData data, InterceptionResult<object> result, CancellationToken token = default)
+    { Count++; return ValueTask.FromResult(result); }
+    public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData data, InterceptionResult<int> result, CancellationToken token = default)
+    { Count++; return ValueTask.FromResult(result); }
+}

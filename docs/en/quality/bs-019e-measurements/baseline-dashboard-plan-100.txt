@@ -1,0 +1,22 @@
+Limit  (cost=1160.35..1160.60 rows=100 width=36) (actual time=188.353..188.364 rows=100 loops=1)
+  Buffers: shared hit=603
+  ->  Sort  (cost=1160.35..1160.60 rows=100 width=36) (actual time=188.351..188.356 rows=100 loops=1)
+        Sort Key: latest.date, latest."EventId"
+        Sort Method: quicksort  Memory: 32kB
+        Buffers: shared hit=603
+        ->  Subquery Scan on latest  (cost=1106.53..1157.03 rows=100 width=36) (actual time=188.307..188.332 rows=100 loops=1)
+              Buffers: shared hit=603
+              ->  Unique  (cost=1106.53..1156.03 rows=100 width=148) (actual time=188.305..188.321 rows=100 loops=1)
+                    Buffers: shared hit=603
+                    ->  Sort  (cost=1106.53..1131.28 rows=9900 width=148) (actual time=188.304..188.308 rows=100 loops=1)
+                          Sort Key: (((r.value ->> 'EventId'::text))::uuid), (((r.value ->> 'PredictionCutoffUtc'::text))::timestamp with time zone) DESC, s."RecordedAtUtc" DESC, s."Id"
+                          Sort Method: quicksort  Memory: 32kB
+                          Buffers: shared hit=603
+                          ->  Nested Loop  (cost=0.01..449.50 rows=9900 width=148) (actual time=3.482..188.150 rows=100 loops=1)
+                                Buffers: shared hit=603
+                                ->  Seq Scan on "Snapshots" s  (cost=0.00..3.99 rows=99 width=42) (actual time=0.020..0.109 rows=100 loops=1)
+                                      Buffers: shared hit=3
+                                ->  Function Scan on jsonb_array_elements r  (cost=0.01..1.01 rows=100 width=32) (actual time=1.828..1.828 rows=1 loops=100)
+                                      Buffers: shared hit=600
+Planning Time: 0.150 ms
+Execution Time: 188.549 ms

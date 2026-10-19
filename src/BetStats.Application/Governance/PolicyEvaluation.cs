@@ -17,6 +17,13 @@ public interface ISourcePolicyEvaluator
 {
     Task<PolicyEvaluation> EvaluateAsync(Guid dataSourceId, DataPurpose purpose, DateTime atUtc, UsageContext context,
         CancellationToken cancellationToken = default);
+    async Task<IReadOnlyDictionary<DataPurpose, PolicyEvaluation>> EvaluateManyAsync(Guid dataSourceId, IReadOnlyList<DataPurpose> purposes,
+        DateTime atUtc, UsageContext context, CancellationToken cancellationToken = default)
+    {
+        var results = new Dictionary<DataPurpose, PolicyEvaluation>();
+        foreach (var purpose in purposes.Distinct()) results.Add(purpose, await EvaluateAsync(dataSourceId, purpose, atUtc, context, cancellationToken));
+        return results;
+    }
 }
 
 public sealed class SourcePolicyEvaluator(ISourcePolicyHistory history) : ISourcePolicyEvaluator
@@ -28,6 +35,23 @@ public sealed class SourcePolicyEvaluator(ISourcePolicyHistory history) : ISourc
         ArgumentNullException.ThrowIfNull(context);
         if (context.IntendedRetentionDays is <= 0) throw new ArgumentException("Retention must be positive.");
         var states = await history.ReadAtAsync(dataSourceId, atUtc, cancellationToken);
+        return Evaluate(states, dataSourceId, purpose, atUtc, context);
+    }
+    public async Task<IReadOnlyDictionary<DataPurpose, PolicyEvaluation>> EvaluateManyAsync(Guid dataSourceId, IReadOnlyList<DataPurpose> purposes,
+        DateTime atUtc, UsageContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(purposes); ArgumentNullException.ThrowIfNull(context);
+        if (purposes.Count > Enum.GetValues<DataPurpose>().Length || dataSourceId == Guid.Empty || purposes.Any(p => !Enum.IsDefined(p)) ||
+            atUtc.Kind != DateTimeKind.Utc || atUtc.Ticks % 10 != 0 || context.IntendedRetentionDays is <= 0)
+            throw new ArgumentException("Valid bounded policy evaluation group required.");
+        if (purposes.Count == 0) return new Dictionary<DataPurpose, PolicyEvaluation>();
+        // One fresh history read per explicit source/time/context group, never
+        // retained on the evaluator or reused for a later authorization call.
+        var states = await history.ReadAtAsync(dataSourceId, atUtc, cancellationToken);
+        return purposes.Distinct().ToDictionary(p => p, p => Evaluate(states, dataSourceId, p, atUtc, context));
+    }
+    private static PolicyEvaluation Evaluate(IReadOnlyList<PolicyState> states, Guid dataSourceId, DataPurpose purpose, DateTime atUtc, UsageContext context)
+    {
         var active = states.Where(s => s.Policy.DataSourceId == dataSourceId && s.Status == PolicyStatus.Approved &&
             s.Policy.EffectiveFromUtc <= atUtc && (s.Policy.EffectiveToUtc is null || atUtc < s.Policy.EffectiveToUtc)).ToArray();
         PolicyEvaluation Result(bool allowed, PolicyReason reason, SourcePolicy? policy = null, IReadOnlyList<AppliedRestriction>? restrictions = null) =>

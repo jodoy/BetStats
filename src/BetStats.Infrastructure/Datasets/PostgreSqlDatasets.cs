@@ -273,6 +273,10 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
     {
         if (id == Guid.Empty) throw new ArgumentException("Snapshot ID required.");
         var artifact = await db.DatasetArtifacts.AsNoTracking().SingleAsync(a => a.Id == id, token);
+        return (artifact, ParseManifest(artifact));
+    }
+    private static DatasetManifest ParseManifest(DatasetArtifact artifact)
+    {
         var manifest = CanonicalDatasetJson.Deserialize<DatasetManifest>(artifact.Content);
         if (manifest.Definition is null || manifest.Rows is null || manifest.Rows.Count is < 1 or > 100 || manifest.QualityRuleVersions is null ||
             manifest.Rows.Any(r => r is null || r.Target is null || r.History is null || r.History.Count > 1000 || r.Excluded is null || r.Excluded.Count > 1000 ||
@@ -289,7 +293,31 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
             (manifest.ManifestVersion == 2 && (manifest.Governance is not { SchemaVersion: 1 or 2 } governance || governance.Rows.Count != manifest.Rows.Count ||
                 governance.Rows.Any(r => r.CoverageSchemaVersion is not (1 or 2) || r.Gates.Count != FootballMetadataFeatures.Catalog.Count || r.Coverage.Count != 8 || r.EventTimes.Count > 200))))
             throw new InvalidDataException("Unsupported or incomplete manifest governance.");
-        return (artifact, manifest);
+        return manifest;
+    }
+    public async Task<IReadOnlyList<DatasetSnapshot>> InspectManyAsync(IReadOnlyList<Guid> ids, CancellationToken token = default)
+    {
+        if (ids.Count > 100 || ids.Any(id => id == Guid.Empty)) throw new ArgumentException("Valid snapshot IDs and batch bound 100 required.");
+        var keys = ids.Distinct().ToArray();
+        if (keys.Length == 0) return [];
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, token);
+        var artifacts = await db.DatasetArtifacts.AsNoTracking().Where(a => keys.Contains(a.Id)).ToDictionaryAsync(a => a.Id, token);
+        if (artifacts.Count != keys.Length) throw new InvalidOperationException("Snapshot missing.");
+        var manifests = keys.ToDictionary(id => id, id => ParseManifest(artifacts[id]));
+        // The transaction spans the entire batch, so source ordering must also
+        // span the batch. Per-manifest ordering can deadlock reversed pages.
+        foreach (var source in manifests.Values.SelectMany(Evidence).Select(e => e.SourceId).Distinct().Order())
+            await QualityPersistence.Lock(db, source, token);
+        var snapshots = new List<DatasetSnapshot>();
+        foreach (var id in keys)
+        {
+            var artifact = artifacts[id]; var manifest = manifests[id];
+            await Authorize(manifest, false, token);
+            if (CanonicalDatasetJson.Hash(artifact.Content) != artifact.ManifestHash) throw new InvalidDataException("Artifact hash mismatch.");
+            snapshots.Add(new(id, artifact.ManifestHash, artifact.BuiltAtUtc, artifact.RecordedAtUtc, manifest));
+        }
+        await tx.CommitAsync(token);
+        return snapshots;
     }
     public async Task<DatasetSnapshot> InspectAsync(Guid id, CancellationToken token = default)
     {
@@ -411,7 +439,7 @@ public sealed class PostgreSqlDatasets(BetStatsDbContext db, IRawPayloadStore ra
                     if (!storageRights.Allowed || storageRights.Restrictions.Any(r => r.MaximumRetentionDays is { } days &&
                         rawCheckUtc - raw.RetrievedAtUtc > TimeSpan.FromDays(days))) throw new UnauthorizedAccessException();
                     var bytes = await rawStore.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, length), token);
-                    if (bytes.Length != length || CanonicalDatasetJson.Hash(bytes.ToArray()) != raw.ContentHashSha256)
+                    if (bytes.Length != length || CanonicalDatasetJson.Hash(bytes.Span) != raw.ContentHashSha256)
                     { rawVerified = false; reasons.Add("raw_corrupt"); }
                 }
                 catch (Exception error) when (error is Denied or UnauthorizedAccessException)

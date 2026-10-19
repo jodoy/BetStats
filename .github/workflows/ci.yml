@@ -24,11 +24,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore
-        run: dotnet restore BetStats.slnx --locked-mode
-
-      - name: Build
-        run: dotnet build BetStats.slnx --configuration Release --no-restore
+      - name: Restore and build validated Release artifacts
+        shell: pwsh
+        run: ./eng/test.ps1 -BuildOnly
 
       - name: Dependency vulnerability audit
         shell: pwsh

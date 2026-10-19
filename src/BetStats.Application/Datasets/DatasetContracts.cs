@@ -68,6 +68,13 @@ public interface IDatasets
 {
     Task<DatasetBuildResult> BuildAsync(DatasetBuildRequest request, CancellationToken token = default);
     Task<DatasetSnapshot> InspectAsync(Guid id, CancellationToken token = default);
+    async Task<IReadOnlyList<DatasetSnapshot>> InspectManyAsync(IReadOnlyList<Guid> ids, CancellationToken token = default)
+    {
+        if (ids.Count > 100) throw new ArgumentException("Snapshot batch exceeds 100.");
+        var snapshots = new List<DatasetSnapshot>();
+        foreach (var id in ids.Distinct()) snapshots.Add(await InspectAsync(id, token));
+        return snapshots;
+    }
     Task<DatasetVerification> VerifyAsync(Guid id, CancellationToken token = default);
     Task<DatasetVerification> VerifyDeepAsync(Guid id, CancellationToken token = default);
     Task<DatasetComparison> CompareAsync(Guid left, Guid right, int offset, int limit, CancellationToken token = default);

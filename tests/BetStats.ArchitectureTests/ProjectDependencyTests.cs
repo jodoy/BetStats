@@ -25,38 +25,52 @@ public sealed class ProjectDependencyTests
         var projects = Directory.GetFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories);
         Assert.Equal(AllowedDependencies.Keys.Order(), projects.Select(Path.GetFileNameWithoutExtension).Order());
         var graph = new Dictionary<string, string[]>(StringComparer.Ordinal);
-
-        foreach (var project in projects)
+        using var slots = new SemaphoreSlim(3);
+        var evaluations = projects.Select(async project =>
         {
-            using var evaluation = await Evaluate(project, configuration, root);
-            var name = Path.GetFileNameWithoutExtension(project);
-            var items = evaluation.RootElement.GetProperty("Items");
-            var references = items.GetProperty("ProjectReference").EnumerateArray()
-                .Select(item => item.GetProperty("FullPath").GetString()!).ToArray();
-
-            foreach (var reference in references)
+            await slots.WaitAsync();
+            try { return await Evaluate(project, configuration, root); }
+            finally { slots.Release(); }
+        }).ToArray();
+        try
+        {
+            var documents = await Task.WhenAll(evaluations);
+            for (var index = 0; index < projects.Length; index++)
             {
-                Assert.Contains(reference, projects);
-                Assert.True(IsAllowed(name, Path.GetFileNameWithoutExtension(reference)),
-                    $"Forbidden project dependency: {name} -> {reference} ({configuration}). See ADR 0013.");
+                var project = projects[index]; var evaluation = documents[index];
+                var name = Path.GetFileNameWithoutExtension(project);
+                var items = evaluation.RootElement.GetProperty("Items");
+                var references = items.GetProperty("ProjectReference").EnumerateArray()
+                    .Select(item => item.GetProperty("FullPath").GetString()!).ToArray();
+
+                foreach (var reference in references)
+                {
+                    Assert.Contains(reference, projects);
+                    Assert.True(IsAllowed(name, Path.GetFileNameWithoutExtension(reference)),
+                        $"Forbidden project dependency: {name} -> {reference} ({configuration}). See ADR 0013.");
+                }
+
+                // A binary reference could otherwise bypass the project graph.
+                Assert.Empty(items.GetProperty("Reference").EnumerateArray());
+                // Composition roots register Infrastructure but must not add their
+                // own EF Core/Npgsql implementation package dependencies (ADR 0014).
+                if (name != "BetStats.Infrastructure")
+                {
+                    Assert.DoesNotContain(items.GetProperty("PackageReference").EnumerateArray(), item =>
+                        IsPersistencePackage(item.GetProperty("Identity").GetString()!));
+                }
+
+                graph[name] = references.Select(reference => Path.GetFileNameWithoutExtension(reference)).ToArray();
             }
 
-            // A binary reference could otherwise bypass the project graph.
-            Assert.Empty(items.GetProperty("Reference").EnumerateArray());
-            // Composition roots register Infrastructure but must not add their
-            // own EF Core/Npgsql implementation package dependencies (ADR 0014).
-            if (name != "BetStats.Infrastructure")
+            foreach (var project in graph.Keys)
             {
-                Assert.DoesNotContain(items.GetProperty("PackageReference").EnumerateArray(), item =>
-                    IsPersistencePackage(item.GetProperty("Identity").GetString()!));
+                AssertAcyclic(project, graph, []);
             }
-
-            graph[name] = references.Select(reference => Path.GetFileNameWithoutExtension(reference)).ToArray();
         }
-
-        foreach (var project in graph.Keys)
+        finally
         {
-            AssertAcyclic(project, graph, []);
+            foreach (var evaluation in evaluations.Where(task => task.IsCompletedSuccessfully)) (await evaluation).Dispose();
         }
     }
 

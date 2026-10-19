@@ -1,0 +1,26 @@
+[
+  {
+    "Report": "Quality_Unreviewed",
+    "RequestedRecords": 10,
+    "ActualRecords": 10,
+    "SqlCommands": 222,
+    "RawReads": 0,
+    "Milliseconds": 508.334
+  },
+  {
+    "Report": "Coverage_UnreviewedPartial",
+    "RequestedRecords": 10,
+    "ActualRecords": 12,
+    "SqlCommands": 284,
+    "RawReads": 0,
+    "Milliseconds": 561.6324
+  },
+  {
+    "Report": "Dashboard_SparseFrozenPage",
+    "RequestedRecords": 10,
+    "ActualRecords": 1,
+    "SqlCommands": 112,
+    "RawReads": 3,
+    "Milliseconds": 229.9563
+  }
+]

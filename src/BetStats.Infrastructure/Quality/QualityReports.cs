@@ -7,6 +7,7 @@ namespace BetStats.Infrastructure.Quality;
 
 public sealed class QualityReports(BetStatsDbContext db, IAnalyticalQualityGate gate) : IQualityReports
 {
+    private sealed record ObservationMatch(Guid RawPayloadId, string RecordReference, Guid ObservationId);
     public async Task<QualityReport> ReadAsync(Guid executionId, int maximumRecords = 5000, CancellationToken token = default)
     {
         if (maximumRecords is < 1 or > 5000 || executionId == Guid.Empty) throw new ArgumentException("Execution and report bound 1..5000 required.");
@@ -19,6 +20,7 @@ public sealed class QualityReports(BetStatsDbContext db, IAnalyticalQualityGate 
         if (groups.Length > maximumRecords) throw new InvalidOperationException("Quality report exceeds record bound.");
         var invalid = 0; var duplicates = 0; var unresolved = 0; var conflicts = 0; var accepted = 0; var eligible = 0;
         var now = await QualityPersistence.Now(db, token);
+        var acceptedRows = new List<(Guid RawPayloadId, string RecordReference)>();
         foreach (var row in groups)
         {
             var rules = row.GroupBy(a => a.RuleId).Select(g => g.OrderByDescending(a => a.RecordedAtUtc).ThenByDescending(a => a.Id).First()).ToArray();
@@ -29,10 +31,29 @@ public sealed class QualityReports(BetStatsDbContext db, IAnalyticalQualityGate 
             if (issues.Any(a => a.Classification is QualityClassification.DuplicateContradictory or QualityClassification.CanonicalMismatch or QualityClassification.ObservationConflict or QualityClassification.InvalidTransition)) { conflicts++; continue; }
             if (issues.Any(a => a.Classification == QualityClassification.IdentityAmbiguous)) { unresolved++; continue; }
             accepted++;
-            var reference = rules[0].RecordReference;
-            var observations = await db.Observations.AsNoTracking().Where(o => o.RawPayloadId == row.Key.RawPayloadId && o.Type == BetStats.Domain.Observations.ObservationType.EventDate &&
-                db.ProviderIdentities.Any(i => i.Id == o.ProviderIdentityId && i.ExternalId == reference)).OrderBy(o => o.Id).Take(2).ToListAsync(token);
-            if (observations.Count == 1 && (await gate.EvaluateAsync(new(observations[0].Id, now, BetStats.Domain.Governance.DataPurpose.InternalAnalytics, new()), token)).Eligible) eligible++;
+            acceptedRows.Add((row.Key.RawPayloadId, rules[0].RecordReference));
+        }
+        // LATERAL keeps the original ordered Take(2) independently for each
+        // composite key. Even long observation histories materialize at most 200
+        // matches per batch. A single match is required; never select First.
+        foreach (var batch in acceptedRows.Chunk(100))
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(batch.Distinct().Select(k => new { k.RawPayloadId, k.RecordReference }));
+            var matches = await db.Database.SqlQuery<ObservationMatch>($"""
+                SELECT k."RawPayloadId", k."RecordReference", o."Id" AS "ObservationId"
+                FROM jsonb_to_recordset({json}::jsonb) AS k("RawPayloadId" uuid, "RecordReference" text)
+                CROSS JOIN LATERAL (
+                    SELECT o."Id" FROM provenance."Observations" o
+                    JOIN provenance."ProviderIdentities" i ON i."Id" = o."ProviderIdentityId"
+                    WHERE o."RawPayloadId" = k."RawPayloadId" AND i."ExternalId" = k."RecordReference"
+                      AND o."Type" = {nameof(BetStats.Domain.Observations.ObservationType.EventDate)}
+                    ORDER BY o."Id" LIMIT 2
+                ) o
+                """).ToListAsync(token);
+            var byKey = matches.ToLookup(m => (m.RawPayloadId, m.RecordReference));
+            var queries = batch.Select(key => byKey[key].ToArray()).Where(observations => observations.Length == 1)
+                .Select(observations => new EligibilityQuery(observations[0].ObservationId, now, BetStats.Domain.Governance.DataPurpose.InternalAnalytics, new())).ToArray();
+            if (queries.Length > 0) eligible += (await gate.EvaluateManyAsync(queries, token)).Count(result => result.Eligible);
         }
         var total = groups.Length; var valid = total - invalid - duplicates - conflicts; var rejected = invalid + duplicates + conflicts;
         double Rate(int numerator, int denominator) => denominator == 0 ? 0 : (double)numerator / denominator;

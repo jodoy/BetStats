@@ -31,19 +31,26 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
     {
         if (await sources.ReadAsync(source, token) != SourceOperationalStatus.Enabled) throw new UnauthorizedAccessException("Source not enabled.");
         Guid? policy = null;
-        foreach (var p in new[] { purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention }.Distinct())
+        var purposes = new[] { purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention }.Distinct().ToArray();
+        var decisions = await policies.EvaluateManyAsync(source, purposes, at, context, token);
+        foreach (var p in purposes)
         {
-            var result = await policies.EvaluateAsync(source, p, at, context, token);
+            var result = decisions[p];
             if (!result.Allowed) throw new UnauthorizedAccessException("Source policy denies evidence use."); policy = result.PolicyId;
         }
         return policy!.Value;
     }
-    private async Task<ReadOnlyMemory<byte>> Read(RawPayload raw, CancellationToken token)
+    private async Task<ReadOnlyMemory<byte>> Read(RawPayload raw, CancellationToken token, Dictionary<Guid, ReadOnlyMemory<byte>>? verified = null)
     {
         var now = await QualityPersistence.Now(db, token); await Authorize(raw.DataSourceId, DataPurpose.InternalAnalytics, new(), now, token);
         var retention = await policies.EvaluateAsync(raw.DataSourceId, DataPurpose.HistoricalRetention, now, new(), token);
         if (retention.Restrictions.Any(r => r.MaximumRetentionDays is { } days && now - raw.RetrievedAtUtc > TimeSpan.FromDays(days))) throw new UnauthorizedAccessException("Retention age exceeded.");
-        return await store.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, raw.ByteLength ?? throw new InvalidDataException("RAW length missing.")), token);
+        // Authorization always precedes reuse; only verified bytes are reused
+        // within the owning report, never across reads or service invocations.
+        if (verified is not null && verified.TryGetValue(raw.Id, out var bytes)) return bytes;
+        bytes = await store.ReadAsync(new(raw.StorageKey, raw.ContentHashSha256, raw.ByteLength ?? throw new InvalidDataException("RAW length missing.")), token);
+        if (verified is { Count: < 16 }) verified.Add(raw.Id, bytes);
+        return bytes;
     }
     public async Task<CoverageEvidence> RecordAsync(CoverageSubmission request, CancellationToken token = default)
     {
@@ -125,14 +132,14 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
         }
         return scope.SportId == FootballQualityRules.Football;
     }
-    private async Task<bool> InventoryValid(CoverageEvidence evidence, DateTime cutoff, DatasetMode mode, DateTime? reconstruction, DataPurpose purpose, UsageContext context, CancellationToken token)
+    private async Task<bool> InventoryValid(CoverageEvidence evidence, DateTime cutoff, DatasetMode mode, DateTime? reconstruction, DataPurpose purpose, UsageContext context, CancellationToken token, Dictionary<Guid, ReadOnlyMemory<byte>>? verified = null)
     {
         var sourcePolicy = await db.SourcePolicies.AsNoTracking().SingleAsync(p => p.Id == evidence.PolicyId, token);
         if (sourcePolicy.TermsReference != "synthetic:owned-fixture" || evidence.Scope.Interval.Kind != IntervalKind.Calendar || evidence.Scope.Interval.CalendarBasis != "UTC-calendar") return false;
         var inventoryRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == evidence.RawId, token);
         try
         {
-            var proof = CanonicalDatasetJson.Deserialize<CoverageInventory>((await Read(inventoryRaw, token)).ToArray());
+            var proof = CanonicalDatasetJson.Deserialize<CoverageInventory>((await Read(inventoryRaw, token, verified)).ToArray());
             if (proof.Contract != Contract || proof.Scope != evidence.Scope || proof.Claim != evidence.Claim || proof.ObservationIds is null ||
                 proof.ObservationIds.Count > 1000 || !proof.ObservationIds.Order().SequenceEqual(evidence.SupportingObservationIds.Order())) return false;
         }
@@ -141,16 +148,26 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
             o.AvailableAtUtc <= cutoff && o.RecordedAtUtc <= cutoff && !db.Observations.Any(n => n.ProviderIdentityId == o.ProviderIdentityId && n.Type == o.Type && n.Version > o.Version && n.AvailableAtUtc <= cutoff && n.RecordedAtUtc <= cutoff))
             .OrderBy(o => o.Id).Take(1001).ToListAsync(token);
         if (observations.Count > 1000) throw new InvalidOperationException("Inventory bound exceeded.");
+        var rawIds = observations.Select(o => o.RawPayloadId).Distinct().ToArray();
+        var rawById = await db.RawPayloads.AsNoTracking().Where(r => rawIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, token);
+        var identityIds = observations.Select(o => o.ProviderIdentityId).Distinct().ToArray();
+        var identityById = await db.ProviderIdentities.AsNoTracking().Where(i => identityIds.Contains(i.Id)).ToDictionaryAsync(i => i.Id, token);
+        var parsedByRaw = new Dictionary<Guid, FootballParseResult>();
         var ids = new List<Guid>(); var knowledge = reconstruction ?? cutoff;
         foreach (var o in observations)
         {
             // Determine potential scope independently of quality. A failed quality/identity gate
             // cannot turn an observed event into affirmative evidence of an empty interval.
-            var raw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == o.RawPayloadId, token);
-            var anchor = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == o.ProviderIdentityId, token);
+            var raw = o.RawPayloadId is { } rawId && rawById.TryGetValue(rawId, out var foundRaw) ? foundRaw : throw new InvalidOperationException("Observation RAW missing.");
+            var anchor = identityById[o.ProviderIdentityId];
             var original = await FootballContext.ReadAsync(db, raw, new(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference), token, cutoff);
             if (original != new FootballImportScope(evidence.Scope.CompetitionReference, evidence.Scope.SeasonReference)) continue;
-            var parsed = parser.Parse(await Read(raw, token), original, token);
+            var bytes = await Read(raw, token, verified);
+            if (!parsedByRaw.TryGetValue(raw.Id, out var parsed))
+            {
+                parsed = parser.Parse(bytes, original, token);
+                if (parsedByRaw.Count < 16) parsedByRaw.Add(raw.Id, parsed);
+            }
             var row = parsed.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId);
             if (row is null) return false;
             if (row.MatchDate < evidence.Scope.Interval.StartDate || row.MatchDate >= evidence.Scope.Interval.EndDate) continue;
@@ -189,25 +206,35 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
         if (candidates.Count > 200) throw new InvalidOperationException("Coverage query bound exceeded.");
         var items = new List<CoverageItem>(); var now = await QualityPersistence.Now(db, token);
         var factRows = new Dictionary<Guid, FootballParseResult>();
-        foreach (var e in candidates.Where(e => e.Scope.SameDimensions(query.Scope) && e.Scope.Interval.Compatible(query.Scope.Interval) && CoverageRules.Intersection(e.Scope.Interval, query.Scope.Interval) is not null))
+        var verified = new Dictionary<Guid, ReadOnlyMemory<byte>>();
+        var relevant = candidates.Where(e => e.Scope.SameDimensions(query.Scope) && e.Scope.Interval.Compatible(query.Scope.Interval) && CoverageRules.Intersection(e.Scope.Interval, query.Scope.Interval) is not null).ToArray();
+        var candidateRawIds = relevant.Select(e => e.RawId).Distinct().ToArray();
+        var candidateRaw = await db.RawPayloads.AsNoTracking().Where(r => candidateRawIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, token);
+        foreach (var e in relevant)
         {
-            var raw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == e.RawId, token);
+            var raw = candidateRaw.TryGetValue(e.RawId, out var candidate) ? candidate : throw new InvalidOperationException("Coverage RAW missing.");
             if (raw.RecordedAtUtc > query.AsOfUtc || raw.ContentHashSha256 != e.RawHash) continue;
             var review = await db.CoverageReviews.AsNoTracking().Where(r => r.EvidenceId == e.Id && r.RecordedAtUtc <= knowledge && r.ReviewedAtUtc <= knowledge).OrderByDescending(r => r.Sequence).FirstOrDefaultAsync(token);
             var status = review?.Status != CoverageReviewStatus.Approved ? CoverageStatus.Unknown : e.Claim;
             var reasons = new List<string>(); var ids = new List<Guid>(); var quality = new List<Guid>();
             if (e.ValidUntilUtc <= knowledge || e.ValidUntilUtc <= now) { status = CoverageStatus.Expired; reasons.Add("coverage_validity_expired"); }
-            if (status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty && !await InventoryValid(e, query.AsOfUtc, query.Mode, query.ReconstructionUtc, query.Purpose, query.Context, token))
+            if (status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty && !await InventoryValid(e, query.AsOfUtc, query.Mode, query.ReconstructionUtc, query.Purpose, query.Context, token, verified))
             { status = CoverageStatus.Conflicting; reasons.Add("inventory_no_longer_matches_eligible_historical_evidence"); }
-            foreach (var observationId in e.SupportingObservationIds)
+            foreach (var batch in e.SupportingObservationIds.Chunk(100))
             {
-                var result = await gate.EvaluateAsync(new(observationId, query.AsOfUtc, query.Purpose, query.Context, query.Mode, query.ReconstructionUtc), token);
-                if (result.DecisionId is { } decision) ids.Add(decision); quality.AddRange(result.AssessmentIds);
+                var results = await gate.EvaluateManyAsync(batch.Select(observationId => new EligibilityQuery(observationId, query.AsOfUtc, query.Purpose, query.Context, query.Mode, query.ReconstructionUtc)).ToArray(), token);
+                foreach (var result in results)
+                {
+                    if (result.DecisionId is { } decision) ids.Add(decision); quality.AddRange(result.AssessmentIds);
+                }
             }
             var facts = new List<CoverageFact>();
+            var observations = new Dictionary<Guid, Observation>();
+            foreach (var batch in e.SupportingObservationIds.Distinct().Chunk(1000))
+                foreach (var observation in await db.Observations.AsNoTracking().Where(o => batch.Contains(o.Id)).ToListAsync(token)) observations.Add(observation.Id, observation);
             foreach (var observationId in e.SupportingObservationIds.Order())
             {
-                var observation = await db.Observations.AsNoTracking().SingleAsync(o => o.Id == observationId, token);
+                var observation = observations.TryGetValue(observationId, out var found) ? found : throw new InvalidOperationException("Supporting observation missing.");
                 var date = observation.DateValue;
                 if (date is null && status is CoverageStatus.VerifiedComplete or CoverageStatus.VerifiedEmpty)
                 {
@@ -216,7 +243,7 @@ public sealed class HistoricalCoverage(BetStatsDbContext db, IRawPayloadStore st
                     {
                         var observationRaw = await db.RawPayloads.AsNoTracking().SingleAsync(r => r.Id == observationRawId, token);
                         var original = await FootballContext.ReadAsync(db, observationRaw, new(e.Scope.CompetitionReference, e.Scope.SeasonReference), token, query.AsOfUtc);
-                        rows = parser.Parse(await Read(observationRaw, token), original, token); factRows.Add(observationRawId, rows);
+                        rows = parser.Parse(await Read(observationRaw, token, verified), original, token); factRows.Add(observationRawId, rows);
                     }
                     var anchor = await db.ProviderIdentities.AsNoTracking().SingleAsync(i => i.Id == observation.ProviderIdentityId, token);
                     date = rows.Records.SingleOrDefault(r => r.MatchReference == anchor.ExternalId)?.MatchDate;
