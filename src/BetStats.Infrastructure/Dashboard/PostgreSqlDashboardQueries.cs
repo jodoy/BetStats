@@ -29,7 +29,11 @@ public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets d
              (f.Team == null || db.EventParticipants.Any(p => p.EventId == ev.Id && p.ParticipantId == f.Team))
          select feature.DatasetId).Distinct();
 
-    private async Task AuthorizeRaw(IEnumerable<Guid> ids, CancellationToken token)
+    private async Task AuthorizeRawBatches(IEnumerable<Guid> ids, CancellationToken token, RawReadSession? verified = null)
+    {
+        foreach (var batch in ids.Distinct().Chunk(1000)) await AuthorizeRaw(batch, token, verified);
+    }
+    private async Task AuthorizeRaw(IEnumerable<Guid> ids, CancellationToken token, RawReadSession? verified = null)
     {
         var keys = ids.Distinct().ToArray();
         if (keys.Length is < 1 or > 20000) throw new InvalidDataException("Missing or excessive evidence.");
@@ -38,18 +42,21 @@ public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets d
         var now = await QualityPersistence.Now(db, token);
         foreach (var source in raw.GroupBy(r => r.DataSourceId))
         {
-            foreach (var purpose in new[] { (inspection?.Audience ?? (InspectionAudience)true).Purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention, DataPurpose.RawPayloadStorage })
+            var decisions = await policies.EvaluateManyAsync(source.Key,
+                new[] { (inspection?.Audience ?? (InspectionAudience)true).Purpose, DataPurpose.InternalAnalytics, DataPurpose.HistoricalRetention, DataPurpose.RawPayloadStorage }.Distinct().ToArray(),
+                now, (inspection?.Audience ?? (InspectionAudience)true).Context, token);
+            foreach (var decision in decisions.Values)
             {
                 // Attribution restrictions fail closed: the MVP does not claim attribution it cannot render safely.
-                var decision = await policies.EvaluateAsync(source.Key, purpose, now, (inspection?.Audience ?? (InspectionAudience)true).Context, token);
                 if (!decision.Allowed || decision.Restrictions.Any(r => r.MaximumRetentionDays is { } days && source.Any(s => now - s.RetrievedAtUtc > TimeSpan.FromDays(days))))
                     throw new UnauthorizedAccessException("Display or retention permission denied.");
             }
         }
         foreach (var item in raw)
         {
-            var bytes = await rawStore.ReadAsync(new(item.StorageKey, item.ContentHashSha256, item.ByteLength ?? throw new InvalidDataException("Missing RAW length.")), token);
-            if (CanonicalDatasetJson.Hash(bytes.ToArray()) != item.ContentHashSha256) throw new InvalidDataException("RAW hash mismatch.");
+            var payload = new StoredPayload(item.StorageKey, item.ContentHashSha256, item.ByteLength ?? throw new InvalidDataException("Missing RAW length."));
+            var bytes = verified is null ? await rawStore.ReadAsync(payload, token) : await verified.ReadAsync(rawStore, payload, token);
+            if (verified is null && CanonicalDatasetJson.Hash(bytes.Span) != item.ContentHashSha256) throw new InvalidDataException("RAW hash mismatch.");
         }
     }
     private static IEnumerable<Guid> RawIds(DatasetManifest m) => m.Rows.SelectMany(r => r.History.Prepend(r.Target))
@@ -87,30 +94,35 @@ public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets d
     public async Task<DashboardPage<DashboardFixture>> FixturesAsync(DashboardFilter f, CancellationToken token = default)
     {
         var keys = await FixtureKeys(f, token);
-        var snapshots = new List<DatasetSnapshot>();
-        foreach (var id in keys.Take(f.Limit).Select(k => k.DatasetId).Distinct())
+        var verified = new RawReadSession();
+        IReadOnlyList<DatasetSnapshot> snapshots;
+        try { snapshots = await datasets.InspectManyAsync(keys.Take(f.Limit).Select(k => k.DatasetId).Distinct().ToArray(), token); }
+        catch (Exception e) when (Datasets.PostgreSqlDatasets.IsPermissionDenial(e)) { throw new UnauthorizedAccessException("Display denied."); }
+        foreach (var s in snapshots)
         {
-            DatasetSnapshot s;
-            try { s = await datasets.InspectAsync(id, token); }
-            catch (Exception e) when (Datasets.PostgreSqlDatasets.IsPermissionDenial(e)) { throw new UnauthorizedAccessException("Display denied."); }
             if (CanonicalDatasetJson.Fingerprint(s.Manifest) != s.ManifestHash) throw new InvalidDataException("Canonical dataset integrity failed.");
-            await AuthorizeRaw(RawIds(s.Manifest), token); snapshots.Add(s);
+            var evidenceCount = RawIds(s.Manifest).Distinct().Take(20001).Count();
+            if (evidenceCount is < 1 or > 20000) throw new InvalidDataException("Missing or excessive evidence.");
         }
+        if (snapshots.Count > 0) await AuthorizeRawBatches(snapshots.SelectMany(s => RawIds(s.Manifest)), token, verified);
+        var selectedKeys = keys.Take(f.Limit).Select(k => (k.EventId, k.DatasetId)).ToHashSet();
         var rows = snapshots.SelectMany(s => s.Manifest.Rows.Select(r => new DashboardFixture(r.EventId, s.Id, s.ManifestHash,
             s.Manifest.Definition.CompetitionId, s.Manifest.Definition.SeasonId, r.Target.HomeId, r.Target.AwayId, r.Target.EventDate,
             r.Target.Status is "Scheduled" or "Postponed" or "Completed" or "Cancelled" or "InProgress" ? r.Target.Status : "Unknown",
             null, null, r.PredictionCutoffUtc, r.History.Count, r.Excluded.Count, "stored_integrity_verified")))
-            .Where(r => keys.Take(f.Limit).Any(k => k.EventId == r.EventId && k.DatasetId == r.DatasetId) && (f.Competition == null || r.CompetitionId == f.Competition) && (f.Season == null || r.SeasonId == f.Season) &&
+            .Where(r => selectedKeys.Contains((r.EventId, r.DatasetId)) && (f.Competition == null || r.CompetitionId == f.Competition) && (f.Season == null || r.SeasonId == f.Season) &&
                 (f.Team == null || r.HomeId == f.Team || r.AwayId == f.Team) && (f.From == null || r.Date >= f.From) && (f.To == null || r.Date <= f.To))
             .GroupBy(r => r.EventId).Select(g => g.OrderByDescending(r => r.CutoffUtc).ThenBy(r => r.DatasetId).First())
             .OrderBy(r => r.Date).ThenBy(r => r.EventId).ToArray();
         var projected = new List<DashboardFixture>();
-        foreach (var r in rows)
+        var now = await QualityPersistence.Now(db, token);
+        var reports = await results.ReadManyAsync(rows.Select(r => new FootballResultQuery(r.CompetitionId, r.SeasonId, now,
+            DataPurpose.InternalAnalytics, (inspection?.Audience ?? (InspectionAudience)true).Context, EventId: r.EventId)).ToArray(), verified, token);
+        await AuthorizeRawBatches(reports.SelectMany(report => report.Results).Where(e => e.Eligible).Select(e => e.Observation.RawId), token, verified);
+        for (var index = 0; index < rows.Length; index++)
         {
-            var now = await QualityPersistence.Now(db, token);
-            var evidence = await results.ReadAsync(new(r.CompetitionId, r.SeasonId, now, DataPurpose.InternalAnalytics, (inspection?.Audience ?? (InspectionAudience)true).Context, EventId: r.EventId), token);
+            var r = rows[index]; var evidence = reports[index];
             var eligible = evidence.Results.Where(e => e.Eligible).ToArray();
-            if (eligible.Length > 0) await AuthorizeRaw(eligible.Select(e => e.Observation.RawId), token);
             var values = eligible.Select(e => e.Observation.Value).Distinct().ToArray();
             var conflict = values.Length > 1 || evidence.Results.Any(e => e.Reasons.Any(reason => reason.Contains("conflict", StringComparison.OrdinalIgnoreCase)));
             var value = values.Length == 1 ? values[0] : null;
@@ -141,18 +153,28 @@ public sealed class PostgreSqlDashboardQueries(BetStatsDbContext db, IDatasets d
             ) choices ORDER BY "Id" OFFSET {f.Offset} LIMIT {f.Limit + 1}
             """).ToArrayAsync(token);
         var choices = new List<DashboardChoice>();
+        IReadOnlyList<DatasetSnapshot> inspected;
+        try { inspected = await datasets.InspectManyAsync(keys.Take(f.Limit).Select(k => k.DatasetId).Distinct().ToArray(), token); }
+        catch (Exception e) when (Datasets.PostgreSqlDatasets.IsPermissionDenial(e)) { throw new UnauthorizedAccessException("Display denied."); }
+        var snapshots = inspected.ToDictionary(s => s.Id);
+        var verified = new RawReadSession();
+        foreach (var s in inspected)
+        {
+            if (CanonicalDatasetJson.Fingerprint(s.Manifest) != s.ManifestHash) throw new InvalidDataException("Dataset integrity failed.");
+            var evidenceCount = RawIds(s.Manifest).Distinct().Take(20001).Count();
+            if (evidenceCount is < 1 or > 20000) throw new InvalidDataException("Missing or excessive evidence.");
+        }
+        await AuthorizeRawBatches(inspected.SelectMany(s => RawIds(s.Manifest)), token, verified);
+        var participantIds = kind == "teams" ? keys.Take(f.Limit).Select(k => k.Id).ToArray() : [];
+        var names = await db.Participants.AsNoTracking().Where(p => participantIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.Name, token);
         foreach (var key in keys.Take(f.Limit))
         {
-            DatasetSnapshot s;
-            try { s = await datasets.InspectAsync(key.DatasetId, token); }
-            catch (Exception e) when (Datasets.PostgreSqlDatasets.IsPermissionDenial(e)) { throw new UnauthorizedAccessException("Display denied."); }
-            if (CanonicalDatasetJson.Fingerprint(s.Manifest) != s.ManifestHash) throw new InvalidDataException("Dataset integrity failed.");
-            await AuthorizeRaw(RawIds(s.Manifest), token);
+            var s = snapshots[key.DatasetId];
             var name = kind switch
             {
                 "competitions" => s.Manifest.Definition.CompetitionReference,
                 "seasons" => s.Manifest.Definition.SeasonReference,
-                _ => await db.Participants.Where(p => p.Id == key.Id).Select(p => p.Name).SingleAsync(token)
+                _ => names.TryGetValue(key.Id, out var participantName) ? participantName : throw new InvalidOperationException("Participant missing.")
             };
             choices.Add(new(key.Id, name, key.Parent));
         }
