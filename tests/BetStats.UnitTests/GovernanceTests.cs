@@ -21,6 +21,32 @@ public sealed class GovernanceTests
     {
         public Task<SourceOperationalStatus> ReadAsync(Guid dataSourceId, CancellationToken cancellationToken = default) => Task.FromResult(SourceOperationalStatus.Enabled);
     }
+    private sealed class MutableHistory(PolicyState state) : ISourcePolicyHistory
+    {
+        public PolicyState State { get; set; } = state;
+        public int Reads { get; private set; }
+        public Task<IReadOnlyList<PolicyState>> ReadAtAsync(Guid source, DateTime at, CancellationToken token = default)
+        { Reads++; return Task.FromResult<IReadOnlyList<PolicyState>>([State]); }
+    }
+    [Fact]
+    public async Task Grouped_purposes_match_single_evaluation_and_read_fresh_history_after_revocation()
+    {
+        var policy = Policy(); var history = new MutableHistory(new(policy, PolicyStatus.Approved));
+        var evaluator = new SourcePolicyEvaluator(history);
+        var purposes = new[] { DataPurpose.DataRetrieval, DataPurpose.PublicDisplay, DataPurpose.InternalAnalytics };
+        var batch = await evaluator.EvaluateManyAsync(Source, purposes, Time, new());
+        Assert.Equal(1, history.Reads);
+        foreach (var purpose in purposes)
+        {
+            var single = await evaluator.EvaluateAsync(Source, purpose, Time, new());
+            Assert.Equal(single.Allowed, batch[purpose].Allowed); Assert.Equal(single.Reason, batch[purpose].Reason);
+            Assert.Equal(single.PolicyId, batch[purpose].PolicyId); Assert.Equal(single.Restrictions, batch[purpose].Restrictions);
+        }
+        history.State = new(policy, PolicyStatus.Revoked);
+        var revoked = await evaluator.EvaluateManyAsync(Source, purposes, Time, new());
+        Assert.All(revoked.Values, decision => { Assert.False(decision.Allowed); Assert.Equal(PolicyReason.Revoked, decision.Reason); });
+        Assert.Equal(5, history.Reads);
+    }
     [Fact]
     public async Task Missing_policy_denies_by_default()
     {
