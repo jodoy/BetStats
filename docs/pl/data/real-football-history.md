@@ -66,3 +66,29 @@ musi egzekwować aktualną politykę na każdej stronie/próbie, timeout, limity
 Identyfikator operatora jest wpisem audytu, nie uwierzytelnieniem.
 
 Pełna składnia i szczegóły profilu: [English runbook](../../en/data/real-football-history.md).
+
+## Import sezonu jedną komendą (BS-020)
+
+Akcja `import` wykonuje cały przepływ dla jednego sezonu ligi w jednej jawnej, zatwierdzonej
+komendzie. Służy do lokalnej, niekomercyjnej analizy przez operatora, który sprawdził warunki
+źródła.
+
+1. Czyta oryginalny eksport (CSV w stylu football-data, dowolne dodatkowe kolumny, do 4 MiB).
+   Oryginalny plik nie jest modyfikowany.
+2. Rzutuje go na profil `football-history-v1`: zostawia kolumny `Div, Date, Time, HomeTeam,
+   AwayTeam, FTHG, FTAG, HTHG, HTAG, FTR, HTR`, tylko wiersze z `FootballHistory:Competition`
+   i rozwija daty `dd/MM/yy` na podstawie roku początku sezonu (`2023-2024` → 2023). Projekcja
+   trafia do `FootballHistory:WorkDirectory` (domyślnie katalog tymczasowy `betstats/projections`).
+3. Przy pierwszym użyciu zakłada źródło i zatwierdzoną SourcePolicy z uprawnieniami
+   DataRetrieval, RawPayloadStorage, HistoricalRetention, InternalAnalytics i ModelTraining.
+   Wyświetlanie publiczne, redystrybucja i użycie komercyjne pozostają nieznane (odmowa).
+   `FootballHistory:TermsReference` musi opisywać zgodę, na której opiera się operator.
+4. Zapisuje tożsamości zrecenzowane przez operatora (`operator:<OperatorId>`) dla rozgrywek,
+   sezonu, każdej drużyny i każdego meczu. Istniejące decyzje są używane ponownie, więc drużyna
+   to jeden uczestnik we wszystkich sezonach.
+5. Uruchamia istniejące operacje `plan` i `capture`. UUID operacji wynika z odcisku planu, więc
+   powtórzenie komendy zwraca `Reused` bez duplikatów.
+
+Przykład komendy i lista opcjonalnych kluczy: zobacz wersję angielską
+[real-football-history.md](../../en/data/real-football-history.md#one-command-season-import-bs-020).
+Komendę uruchamia się raz na każdy plik sezonu.

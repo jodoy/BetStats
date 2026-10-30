@@ -45,6 +45,41 @@ never publication or historical recording evidence. Time is validated but is not
 converted into a guessed UTC kickoff. Partial rows are reported; unterminated
 quoted files fail as malformed and retain RAW evidence.
 
+## One-command season import (BS-020)
+
+`import` runs the whole flow for one league season in a single explicit, approved command.
+It is intended for the operator's own local, non-commercial analysis of a source whose terms
+they have checked.
+
+1. Reads the original export (football-data style CSV, any extra columns, up to 4 MiB). The
+   original file is never modified.
+2. Projects it onto `football-history-v1`: keeps `Div, Date, Time, HomeTeam, AwayTeam, FTHG,
+   FTAG, HTHG, HTAG, FTR, HTR`, keeps only rows of `FootballHistory:Competition` and expands
+   `dd/MM/yy` dates using the explicit season start year (`2023-2024` → 2023). The projection is
+   written to `FootballHistory:WorkDirectory` (default: system temp `betstats/projections`).
+3. On first use creates the source and an approved SourcePolicy allowing DataRetrieval,
+   RawPayloadStorage, HistoricalRetention, InternalAnalytics and ModelTraining. Public display,
+   redistribution and commercial use stay unknown (denied). `FootballHistory:TermsReference`
+   must describe the permission the operator relies on.
+4. Records operator-reviewed identities (`operator:<OperatorId>`) for the competition, season,
+   every team and every match, creating canonical entities where needed. Existing reviewed
+   identities are reused, so teams resolve to one participant across seasons.
+5. Runs the existing `plan` and `capture` operations. The operation UUID is derived from the plan
+   fingerprint, so repeating the command returns `Reused` without duplicates.
+
+```powershell
+dotnet run --project src/BetStats.Worker -c Release -- --FootballHistory:Action import --FootballHistory:Approve true `
+  --FootballHistory:OperatorId operator --FootballHistory:Reason "Local analysis of season 2023-2024" `
+  --FootballHistory:PayloadPath C:\data\E0-2324.csv --FootballHistory:Competition E0 --FootballHistory:Season 2023-2024 `
+  --FootballHistory:CompetitionName "Premier League" --FootballHistory:CountryCode GB `
+  --FootballHistory:SourceCode local-football-history --FootballHistory:TermsReference "Checked source terms on 2026-10-30"
+```
+
+Optional keys: `SourceName`, `SeasonName` (defaults to the season reference), `WorkDirectory`.
+Run the command once per season file. The JSON result lists projected rows, rows of other
+competitions, projection issues, created teams/events and the import report. The existing
+dashboard and `readiness` action then show the imported matches.
+
 ## Operator commands
 
 Use `DOTNET_ENVIRONMENT=Development`, `ConnectionStrings__BetStats` and

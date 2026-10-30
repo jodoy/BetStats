@@ -27,6 +27,12 @@ public static class FootballHistoryOperatorCommand
         switch (Text("Action"))
         {
             case "plan": result = await operations.PlanAsync(Id("SourceId"), Text("PayloadPath"), new(Text("Competition"), Text("Season")), token); break;
+            case "import":
+                if (config["FootballHistory:Approve"] != "true") throw new ArgumentException("Explicit import approval required.");
+                var historyImport = await ImportAsync(db, operations, config, Text, actor, reason, token);
+                result = historyImport;
+                success = historyImport.Import.Outcome is ImportOutcome.Succeeded or ImportOutcome.Reused;
+                break;
             case "capture": case "recover":
                 if (config["FootballHistory:Approve"] != "true") throw new ArgumentException("Explicit import approval required.");
                 var plan = JsonSerializer.Deserialize<FootballImportPlan>(Text("PlanJson")) ?? throw new ArgumentException("Plan required.");
@@ -48,6 +54,30 @@ public static class FootballHistoryOperatorCommand
         }
         Console.WriteLine(JsonSerializer.Serialize(new { Version = 1, Action = Text("Action"), OperatorId = actor, Reason = reason, Result = result }, new JsonSerializerOptions { WriteIndented = true }));
         return success ? 0 : 1;
+    }
+
+    private static Task<FootballHistoryImportResult> ImportAsync(BetStatsDbContext db, FootballImportOperations operations,
+        IConfiguration config, Func<string, string> text, string actor, string reason, CancellationToken token)
+    {
+        string Optional(string key, string fallback) =>
+            string.IsNullOrWhiteSpace(config["FootballHistory:" + key]) ? fallback : config["FootballHistory:" + key]!;
+
+        var scope = new FootballImportScope(text("Competition"), text("Season"));
+        var sourceCode = Optional("SourceCode", "local-football-history");
+        var workDirectory = Optional("WorkDirectory", Path.Combine(Path.GetTempPath(), "betstats", "projections"));
+        var request = new FootballHistoryImportRequest(
+            text("PayloadPath"),
+            workDirectory,
+            scope,
+            sourceCode,
+            Optional("SourceName", sourceCode),
+            config["FootballHistory:TermsReference"] ?? "",
+            text("CompetitionName"),
+            string.IsNullOrWhiteSpace(config["FootballHistory:CountryCode"]) ? null : config["FootballHistory:CountryCode"],
+            Optional("SeasonName", scope.SeasonReference),
+            actor,
+            reason);
+        return new FootballHistoryImport(db, operations).ImportAsync(request, token);
     }
 
     private static async Task Authorize(IServiceProvider services, Guid source, CancellationToken token)
